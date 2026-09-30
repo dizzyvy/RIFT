@@ -13,20 +13,25 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.dizzyvy.sjmusicapp.music.library.MediaStoreAudioLibraryRepository
+import com.dizzyvy.sjmusicapp.music.artwork.EmbeddedArtworkRepository
 import com.dizzyvy.sjmusicapp.music.playback.Media3PlaybackController
 import com.dizzyvy.sjmusicapp.ui.SJMusicApp
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: MediaStoreAudioLibraryRepository
     private lateinit var playbackController: Media3PlaybackController
+    private lateinit var artworkRepository: EmbeddedArtworkRepository
     private val audioPermissionState = mutableStateOf(false)
     private var requestedAudioPermissionBefore = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         repository = MediaStoreAudioLibraryRepository(applicationContext)
-        playbackController = Media3PlaybackController(applicationContext)
+        artworkRepository = EmbeddedArtworkRepository(applicationContext)
+        playbackController = Media3PlaybackController(applicationContext, artworkRepository)
         requestedAudioPermissionBefore = getPreferences(MODE_PRIVATE)
             .getBoolean(KEY_REQUESTED_AUDIO_PERMISSION, false)
         audioPermissionState.value = hasAudioPermission()
@@ -38,6 +43,7 @@ class MainActivity : ComponentActivity() {
             SJMusicApp(
                 repository = repository,
                 playbackController = playbackController,
+                artworkRepository = artworkRepository,
                 hasAudioPermission = audioPermissionState.value,
                 onRequestPermission = {
                     val permission = requiredAudioPermission()
