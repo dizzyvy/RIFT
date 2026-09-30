@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">SJ Music</string>
+    <string name="audio_permission_reason">SJ Music needs access to audio files stored on your phone and SD card to build your music library.</string>
+    <string name="no_music_found">No music found on this device</string>
+    <string name="search_music">Search songs or artists</string>
+    <string name="unknown_artist">Unknown artist</string>
+    <string name="unknown_album">Unknown album</string>
+    <string name="playback_error">This track could not be played.</string>
+    <string name="storage_unavailable">Music storage is currently unavailable.</string>
+</resources>
