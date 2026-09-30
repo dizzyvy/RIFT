@@ -12,6 +12,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.dizzyvy.sjmusicapp.R
 import com.dizzyvy.sjmusicapp.music.model.AudioTrack
+import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.Executor
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class Media3PlaybackController(context: Context) : PlaybackController {
+class Media3PlaybackController(context: Context, private val artworkRepository: ArtworkRepository) : PlaybackController {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
@@ -36,6 +37,7 @@ class Media3PlaybackController(context: Context) : PlaybackController {
     private var mediaController: MediaController? = null
     private var queuedTracks = emptyList<AudioTrack>()
     private var pendingQueue: Pair<List<AudioTrack>, Int>? = null
+    private val pendingAddedTracks = mutableListOf<AudioTrack>()
     private var positionJob: Job? = null
     private var released = false
 
@@ -44,11 +46,15 @@ class Media3PlaybackController(context: Context) : PlaybackController {
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             refreshSnapshot(player)
+            updatePositionPolling()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             _snapshot.value = _snapshot.value.copy(errorMessage = null)
-            mediaController?.let(::refreshSnapshot)
+            mediaController?.let { player ->
+                refreshSnapshot(player)
+                player.currentMediaItem?.toAudioTrack()?.let(::loadSessionArtwork)
+            }
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -73,6 +79,8 @@ class Media3PlaybackController(context: Context) : PlaybackController {
                             pendingQueue = null
                             applyQueue(controller, tracks, startIndex)
                         }
+                        pendingAddedTracks.toList().forEach { controller.addMediaItem(toMediaItem(it)) }
+                        pendingAddedTracks.clear()
                         refreshSnapshot(controller)
                         updatePositionPolling()
                     }
@@ -97,7 +105,7 @@ class Media3PlaybackController(context: Context) : PlaybackController {
                 queue = queuedTracks,
                 currentIndex = startIndex,
                 currentTrack = currentTrack,
-                isPlaying = true,
+                isPlaying = mediaController?.isPlaying == true,
                 positionMs = 0L,
                 durationMs = currentTrack.durationMs,
                 errorMessage = null,
@@ -133,6 +141,23 @@ class Media3PlaybackController(context: Context) : PlaybackController {
         mediaController?.seekTo(positionMs.coerceAtLeast(0L))
     }
 
+    override fun setShuffleEnabled(enabled: Boolean) { mediaController?.shuffleModeEnabled = enabled }
+    override fun setRepeatMode(mode: Int) { mediaController?.repeatMode = mode }
+    override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        mediaController?.takeIf { fromIndex in 0 until it.mediaItemCount && toIndex in 0 until it.mediaItemCount }?.moveMediaItem(fromIndex, toIndex)
+    }
+    override fun removeQueueItem(index: Int) {
+        mediaController?.takeIf { index in 0 until it.mediaItemCount }?.removeMediaItem(index)
+    }
+    override fun addQueueItem(track: AudioTrack) {
+        val controller = mediaController
+        if (controller != null) controller.addMediaItem(toMediaItem(track))
+        else {
+            pendingAddedTracks += track
+            _snapshot.value = _snapshot.value.copy(queue = _snapshot.value.queue + track)
+        }
+    }
+
     fun release() {
         if (released) return
         released = true
@@ -149,6 +174,7 @@ class Media3PlaybackController(context: Context) : PlaybackController {
         controller.play()
         refreshSnapshot(controller)
         updatePositionPolling()
+        tracks.getOrNull(startIndex)?.let(::loadSessionArtwork)
     }
 
     private fun toMediaItem(track: AudioTrack): MediaItem {
@@ -159,7 +185,7 @@ class Media3PlaybackController(context: Context) : PlaybackController {
             .build()
 
         return MediaItem.Builder()
-            .setMediaId(track.id.toString())
+            .setMediaId(track.uri.toString())
             .setUri(track.uri)
             .setMediaMetadata(metadata)
             .build()
@@ -180,7 +206,23 @@ class Media3PlaybackController(context: Context) : PlaybackController {
             isPlaying = player.isPlaying,
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = duration,
+            shuffleEnabled = player.shuffleModeEnabled,
+            repeatMode = player.repeatMode,
         )
+    }
+
+    private fun loadSessionArtwork(track: AudioTrack) {
+        scope.launch(Dispatchers.IO) {
+            val image = artworkRepository.load(track.uri) ?: return@launch
+            launch(Dispatchers.Main.immediate) {
+                val controller = mediaController ?: return@launch
+                val index = (0 until controller.mediaItemCount).firstOrNull { controller.getMediaItemAt(it).localConfiguration?.uri == track.uri } ?: return@launch
+                val item = controller.getMediaItemAt(index)
+                if (item.mediaMetadata.artworkData != null) return@launch
+                val metadata = item.mediaMetadata.buildUpon().setArtworkData(image.encodedBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER).build()
+                controller.replaceMediaItem(index, item.buildUpon().setMediaMetadata(metadata).build())
+            }
+        }
     }
 
     private fun MediaItem.toAudioTrack(): AudioTrack? {
@@ -223,6 +265,8 @@ class Media3PlaybackController(context: Context) : PlaybackController {
             positionMs = 0L,
             durationMs = 0L,
             errorMessage = null,
+            shuffleEnabled = false,
+            repeatMode = Player.REPEAT_MODE_OFF,
         )
     }
 }

@@ -11,6 +11,8 @@ data class PlaybackSnapshot(
     val positionMs: Long,
     val durationMs: Long,
     val errorMessage: String?,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: Int = androidx.media3.common.Player.REPEAT_MODE_OFF,
 )
 
 interface PlaybackController {
@@ -22,4 +24,9 @@ interface PlaybackController {
     fun skipNext()
     fun skipPrevious()
     fun seekTo(positionMs: Long)
+    fun setShuffleEnabled(enabled: Boolean)
+    fun setRepeatMode(mode: Int)
+    fun moveQueueItem(fromIndex: Int, toIndex: Int)
+    fun removeQueueItem(index: Int)
+    fun addQueueItem(track: AudioTrack)
 }

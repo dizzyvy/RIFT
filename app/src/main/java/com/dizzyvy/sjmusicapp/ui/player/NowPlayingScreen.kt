@@ -1,154 +1,108 @@
 package com.dizzyvy.sjmusicapp.ui.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
+import com.dizzyvy.sjmusicapp.music.model.AudioTrack
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackSnapshot
+import com.dizzyvy.sjmusicapp.ui.components.AlbumArtwork
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @Composable
 fun NowPlayingScreen(
     playback: PlaybackSnapshot,
+    artworkRepository: ArtworkRepository,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
     onPlayQueueItem: (Int) -> Unit,
+    onShuffle: (Boolean) -> Unit,
+    onRepeat: (Int) -> Unit,
+    onRemoveQueueItem: (Int) -> Unit,
+    onMoveQueueItem: (Int, Int) -> Unit,
 ) {
     val track = playback.currentTrack
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
-    ) {
-        TextButton(onClick = onBack, modifier = Modifier.padding(top = 6.dp)) { Text("‹  LIBRARY") }
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    var queueOpen by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(scrollState).padding(horizontal = 22.dp)) {
+        TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
         if (track == null) {
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.fillMaxWidth().height(400.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Nothing playing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 TextButton(onClick = onBack) { Text("Browse your music") }
             }
             return
         }
-        Spacer(Modifier.height(4.dp))
         Text("NOW PLAYING", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(14.dp))
+        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(280.dp))
         Spacer(Modifier.height(18.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(28.dp)),
-            shape = RoundedCornerShape(28.dp),
-            color = Color.Transparent,
-        ) {
-            Column(Modifier.background(Brush.linearGradient(listOf(Color(0xFFF05B70), Color(0xFFFFBA48), Color(0xFF53B6A0)))).padding(20.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("♫", fontSize = 112.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                Text(track.album.ifBlank { "SJ MUSIC" }.uppercase(), style = MaterialTheme.typography.labelLarge, color = Color.White)
-            }
-        }
-        Spacer(Modifier.height(22.dp))
         Text(track.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(4.dp))
-        Text(track.artist.ifBlank { "Unknown artist" }, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Text("${track.artist.ifBlank { "Unknown artist" }}  ·  ${track.album.ifBlank { "Unknown album" }}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(12.dp))
-        Slider(
-            value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()),
-            onValueChange = { onSeek(it.toLong()) },
-            valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Slider(value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()), onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(playback.positionMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(formatTime(playback.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("-${formatTime((playback.durationMs - playback.positionMs).coerceAtLeast(0L))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Spacer(Modifier.height(10.dp))
-        ClickWheel(
-            playing = playback.isPlaying,
-            onBack = onBack,
-            onPrevious = onPrevious,
-            onPlayPause = onPlayPause,
-            onNext = onNext,
-        )
-        if (playback.errorMessage != null) Text(playback.errorMessage, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-        if (playback.queue.size > 1) {
-            Spacer(Modifier.height(10.dp))
-            Text("UP NEXT", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            playback.queue.drop(playback.currentIndex + 1).take(2).forEachIndexed { index, queued ->
-                TextButton(onClick = { onPlayQueueItem(playback.currentIndex + index + 1) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("${queued.title}  ·  ${queued.artist.ifBlank { "Unknown artist" }}", maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-                }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { onShuffle(!playback.shuffleEnabled) }) { Text(if (playback.shuffleEnabled) "🔀 ON" else "🔀") }
+            TextButton(onClick = { onRepeat(if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) androidx.media3.common.Player.REPEAT_MODE_ALL else if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF) }) {
+                Text(when (playback.repeatMode) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "REPEAT ALL"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "REPEAT ONE"; else -> "REPEAT OFF" })
             }
         }
-        Spacer(Modifier.height(12.dp))
+        ClickWheel(playing = playback.isPlaying, queueOpen = queueOpen, onMenu = onBack, onPrevious = onPrevious, onTogglePlayback = onPlayPause, onNext = onNext, onSelect = { queueOpen = !queueOpen }, onRotate = { delta ->
+            if (queueOpen) scope.launch { scrollState.scrollTo((scrollState.value + (delta * 2400).roundToInt()).coerceIn(0, scrollState.maxValue)) }
+            else onSeek((playback.positionMs + (delta * 120_000).roundToInt()).coerceIn(0L, playback.durationMs.coerceAtLeast(0L)))
+        })
+        if (playback.errorMessage != null) Text(playback.errorMessage, Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+        if (queueOpen) {
+            Spacer(Modifier.height(4.dp))
+            Text("UP NEXT  ·  ${playback.queue.size} TRACKS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            playback.queue.forEachIndexed { index, queued ->
+                QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = { onRemoveQueueItem(index) }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) })
+            }
+        }
+        Spacer(Modifier.height(20.dp))
     }
 }
 
 @Composable
-private fun ClickWheel(
-    playing: Boolean,
-    onBack: () -> Unit,
-    onPrevious: () -> Unit,
-    onPlayPause: () -> Unit,
-    onNext: () -> Unit,
-) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .padding(4.dp)
-                .background(Color(0xFFE9E6E0), CircleShape)
-                .border(1.dp, Color(0xFFD4D0C8), CircleShape)
-                .padding(12.dp)
-                .background(Color(0xFFF5F3EE), CircleShape)
-                .padding(12.dp)
-                .background(Color(0xFFE9E6E0), CircleShape)
-                .padding(7.dp)
-                .background(Color(0xFFF7F5F0), CircleShape)
-                .padding(54.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(onClick = onPlayPause, shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                Text(if (playing) "❚❚" else "▶", modifier = Modifier.padding(18.dp), fontSize = 22.sp, color = Color.White)
+private fun QueueRow(track: AudioTrack, current: Boolean, canMoveUp: Boolean, canMoveDown: Boolean, onSelect: () -> Unit, onRemove: () -> Unit, onMoveUp: () -> Unit, onMoveDown: () -> Unit) {
+    Surface(color = if (current) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Row(Modifier.padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onSelect, modifier = Modifier.weight(1f)) {
+                Column(horizontalAlignment = Alignment.Start) {
+                    Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface, fontWeight = if (current) FontWeight.Bold else FontWeight.Medium)
+                    Text(if (current) "NOW PLAYING · ${track.artist.ifBlank { "Unknown artist" }}" else track.artist.ifBlank { "Unknown artist" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            TextButton(onClick = onBack, modifier = Modifier.align(Alignment.TopCenter)) {
-                Text("MENU", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF686D76))
-            }
-            TextButton(onClick = onPrevious, modifier = Modifier.align(Alignment.CenterStart)) {
-                Text("|◀", fontSize = 17.sp, color = Color(0xFF343943))
-            }
-            TextButton(onClick = onNext, modifier = Modifier.align(Alignment.CenterEnd)) {
-                Text("▶|", fontSize = 17.sp, color = Color(0xFF343943))
-            }
+            TextButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.semantics { contentDescription = "Move ${track.title} earlier in queue" }) { Text("↑") }
+            TextButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.semantics { contentDescription = "Move ${track.title} later in queue" }) { Text("↓") }
+            TextButton(onClick = onRemove, modifier = Modifier.semantics { contentDescription = "Remove ${track.title} from queue" }) { Text("×") }
         }
     }
 }
 
 private fun formatTime(milliseconds: Long): String {
-    val totalSeconds = milliseconds.coerceAtLeast(0L) / 1_000L
-    return "%d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
+    val seconds = milliseconds.coerceAtLeast(0L) / 1_000L
+    return "%d:%02d".format(seconds / 60L, seconds % 60L)
 }

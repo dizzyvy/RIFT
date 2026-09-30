@@ -4,6 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
+import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
+import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
+import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
+import com.dizzyvy.sjmusicapp.music.library.librarySection
+import com.dizzyvy.sjmusicapp.music.library.artistGroupKey
+import com.dizzyvy.sjmusicapp.music.library.albumGroupKey
 import com.dizzyvy.sjmusicapp.music.model.AudioTrack
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackController
 import kotlinx.coroutines.CancellationException
@@ -19,6 +25,12 @@ data class LibraryUiState(
     val isLoading: Boolean = false,
     val permissionRequired: Boolean = false,
     val message: String? = null,
+    val category: String = "Songs",
+    val artists: List<ArtistBrowseItem> = emptyList(),
+    val albums: List<AlbumBrowseItem> = emptyList(),
+    val playlists: List<DevicePlaylist> = emptyList(),
+    val browseTitle: String? = null,
+    val browseTracks: List<AudioTrack>? = null,
 )
 
 class LibraryViewModel(
@@ -39,9 +51,19 @@ class LibraryViewModel(
         viewModelScope.launch {
             try {
                 val tracks = repository.loadTracks()
+                val playlists = repository.loadPlaylists()
+                val artists = tracks.groupBy(::artistGroupKey)
+                    .map { (id, items) -> ArtistBrowseItem(id, items.first().artist.ifBlank { "Unknown artist" }, items.size) }
+                    .sortedWith(compareBy<ArtistBrowseItem> { if (librarySection(it.name) == '#') 0 else 1 }.thenBy { librarySection(it.name) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                val albums = tracks.groupBy(::albumGroupKey)
+                    .map { (id, items) -> AlbumBrowseItem(id, items.first().album.ifBlank { "Unknown album" }, items.first().artist, items.size) }
+                    .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 _state.value = _state.value.copy(
                     tracks = tracks,
                     visibleTracks = filterTracks(tracks, _state.value.searchQuery),
+                    artists = artists,
+                    albums = albums,
+                    playlists = playlists,
                     isLoading = false,
                     permissionRequired = false,
                     message = null,
@@ -68,9 +90,33 @@ class LibraryViewModel(
     }
 
     fun playTrack(track: AudioTrack) {
-        val tracks = _state.value.visibleTracks
+        val current = _state.value
+        val tracks = current.browseTracks ?: current.visibleTracks
         val index = tracks.indexOf(track)
         if (index >= 0) playback.setQueue(tracks, index)
+    }
+
+    fun selectCategory(category: String) {
+        _state.value = _state.value.copy(category = category, browseTitle = null, browseTracks = null)
+    }
+
+    fun closeGroup() {
+        _state.value = _state.value.copy(browseTitle = null, browseTracks = null)
+    }
+
+    fun openArtist(item: ArtistBrowseItem) = openGroup(item.name) { artistGroupKey(it) == item.id }
+    fun openAlbum(item: AlbumBrowseItem) = openGroup(item.title) { albumGroupKey(it) == item.id }
+
+    fun openPlaylist(item: DevicePlaylist) {
+        viewModelScope.launch {
+            val tracks = repository.loadPlaylistTracks(item)
+            _state.value = _state.value.copy(browseTitle = item.name, browseTracks = tracks)
+        }
+    }
+
+    private fun openGroup(title: String, predicate: (AudioTrack) -> Boolean) {
+        val tracks = _state.value.tracks.filter(predicate)
+        _state.value = _state.value.copy(browseTitle = title, browseTracks = tracks)
     }
 
     private fun filterTracks(tracks: List<AudioTrack>, query: String): List<AudioTrack> {
