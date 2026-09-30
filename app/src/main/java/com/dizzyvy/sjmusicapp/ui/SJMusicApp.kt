@@ -6,9 +6,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
+import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackController
 import com.dizzyvy.sjmusicapp.ui.library.LibraryScreen
 import com.dizzyvy.sjmusicapp.ui.library.LibraryViewModel
@@ -19,6 +22,7 @@ import com.dizzyvy.sjmusicapp.ui.theme.SJMusicTheme
 fun SJMusicApp(
     repository: AudioLibraryRepository,
     playbackController: PlaybackController,
+    artworkRepository: ArtworkRepository,
     hasAudioPermission: Boolean,
     onRequestPermission: () -> Unit,
 ) {
@@ -33,20 +37,27 @@ fun SJMusicApp(
     }
 
     SJMusicTheme {
+      androidx.compose.foundation.layout.Box(Modifier.safeDrawingPadding()) {
         if (showPlayer) {
             NowPlayingScreen(
                 playback = playback,
+                artworkRepository = artworkRepository,
                 onBack = { showPlayer = false },
                 onPlayPause = playbackController::playPause,
                 onNext = playbackController::skipNext,
                 onPrevious = playbackController::skipPrevious,
                 onSeek = playbackController::seekTo,
                 onPlayQueueItem = playbackController::playQueueItem,
+                onShuffle = playbackController::setShuffleEnabled,
+                onRepeat = playbackController::setRepeatMode,
+                onRemoveQueueItem = playbackController::removeQueueItem,
+                onMoveQueueItem = playbackController::moveQueueItem,
             )
         } else {
             LibraryScreen(
                 state = libraryState,
                 playback = playback,
+                artworkRepository = artworkRepository,
                 onSearch = libraryViewModel::setSearchQuery,
                 onRequestPermission = onRequestPermission,
                 onRetry = { libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true) },
@@ -55,7 +66,15 @@ fun SJMusicApp(
                     showPlayer = true
                 },
                 onOpenPlayer = { showPlayer = true },
+                onPlayPause = playbackController::playPause,
+                onAddToQueue = playbackController::addQueueItem,
+                onCategory = libraryViewModel::selectCategory,
+                onOpenArtist = libraryViewModel::openArtist,
+                onOpenAlbum = libraryViewModel::openAlbum,
+                onOpenPlaylist = libraryViewModel::openPlaylist,
+                onBackFromGroup = libraryViewModel::closeGroup,
             )
         }
+      }
     }
 }
