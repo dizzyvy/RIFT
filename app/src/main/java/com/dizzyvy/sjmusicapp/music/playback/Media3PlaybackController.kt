@@ -1,0 +1,228 @@
+package com.dizzyvy.sjmusicapp.music.playback
+
+import android.content.ComponentName
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.dizzyvy.sjmusicapp.R
+import com.dizzyvy.sjmusicapp.music.model.AudioTrack
+import com.google.common.util.concurrent.ListenableFuture
+import java.util.concurrent.Executor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+class Media3PlaybackController(context: Context) : PlaybackController {
+    private val appContext = context.applicationContext
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainExecutor = Executor { command -> mainHandler.post(command) }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val _snapshot = MutableStateFlow(EMPTY_SNAPSHOT)
+    private val controllerFuture: ListenableFuture<MediaController>
+    private var mediaController: MediaController? = null
+    private var queuedTracks = emptyList<AudioTrack>()
+    private var pendingQueue: Pair<List<AudioTrack>, Int>? = null
+    private var positionJob: Job? = null
+    private var released = false
+
+    override val snapshot: StateFlow<PlaybackSnapshot> = _snapshot.asStateFlow()
+
+    private val playerListener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            refreshSnapshot(player)
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            _snapshot.value = _snapshot.value.copy(errorMessage = null)
+            mediaController?.let(::refreshSnapshot)
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            _snapshot.value = _snapshot.value.copy(
+                isPlaying = false,
+                errorMessage = appContext.getString(R.string.playback_error),
+            )
+        }
+    }
+
+    init {
+        val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
+        controllerFuture = MediaController.Builder(appContext, token).buildAsync()
+        controllerFuture.addListener(
+            {
+                if (released) return@addListener
+                runCatching { controllerFuture.get() }
+                    .onSuccess { controller ->
+                        mediaController = controller
+                        controller.addListener(playerListener)
+                        pendingQueue?.let { (tracks, startIndex) ->
+                            pendingQueue = null
+                            applyQueue(controller, tracks, startIndex)
+                        }
+                        refreshSnapshot(controller)
+                        updatePositionPolling()
+                    }
+                    .onFailure {
+                        _snapshot.value = _snapshot.value.copy(
+                            errorMessage = appContext.getString(R.string.playback_error),
+                        )
+                    }
+            },
+            mainExecutor,
+        )
+    }
+
+    override fun setQueue(tracks: List<AudioTrack>, startIndex: Int) {
+        if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        queuedTracks = tracks.toList()
+        val controller = mediaController
+        if (controller == null) {
+            pendingQueue = queuedTracks to startIndex
+            val currentTrack = queuedTracks[startIndex]
+            _snapshot.value = _snapshot.value.copy(
+                queue = queuedTracks,
+                currentIndex = startIndex,
+                currentTrack = currentTrack,
+                isPlaying = true,
+                positionMs = 0L,
+                durationMs = currentTrack.durationMs,
+                errorMessage = null,
+            )
+        } else {
+            applyQueue(controller, queuedTracks, startIndex)
+        }
+    }
+
+    override fun playQueueItem(index: Int) {
+        mediaController?.takeIf { index in 0 until it.mediaItemCount }?.let { controller ->
+            controller.seekToDefaultPosition(index)
+            controller.play()
+            _snapshot.value = _snapshot.value.copy(errorMessage = null)
+        }
+    }
+
+    override fun playPause() {
+        mediaController?.let { controller ->
+            if (controller.isPlaying) controller.pause() else controller.play()
+        }
+    }
+
+    override fun skipNext() {
+        mediaController?.seekToNextMediaItem()
+    }
+
+    override fun skipPrevious() {
+        mediaController?.seekToPreviousMediaItem()
+    }
+
+    override fun seekTo(positionMs: Long) {
+        mediaController?.seekTo(positionMs.coerceAtLeast(0L))
+    }
+
+    fun release() {
+        if (released) return
+        released = true
+        positionJob?.cancel()
+        mediaController?.removeListener(playerListener)
+        mediaController = null
+        MediaController.releaseFuture(controllerFuture)
+        scope.cancel()
+    }
+
+    private fun applyQueue(controller: MediaController, tracks: List<AudioTrack>, startIndex: Int) {
+        controller.setMediaItems(tracks.map(::toMediaItem), startIndex, C.TIME_UNSET)
+        controller.prepare()
+        controller.play()
+        refreshSnapshot(controller)
+        updatePositionPolling()
+    }
+
+    private fun toMediaItem(track: AudioTrack): MediaItem {
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setAlbumTitle(track.album)
+            .build()
+
+        return MediaItem.Builder()
+            .setMediaId(track.id.toString())
+            .setUri(track.uri)
+            .setMediaMetadata(metadata)
+            .build()
+    }
+
+    private fun refreshSnapshot(player: Player) {
+        val queue = (0 until player.mediaItemCount).mapNotNull { index ->
+            player.getMediaItemAt(index).toAudioTrack()
+        }
+        val currentIndex = player.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
+        val currentTrack = queue.getOrNull(currentIndex)
+        val duration = player.duration.takeIf { it >= 0L && it != C.TIME_UNSET } ?: currentTrack?.durationMs ?: 0L
+
+        _snapshot.value = _snapshot.value.copy(
+            queue = queue,
+            currentIndex = currentIndex,
+            currentTrack = currentTrack,
+            isPlaying = player.isPlaying,
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            durationMs = duration,
+        )
+    }
+
+    private fun MediaItem.toAudioTrack(): AudioTrack? {
+        val uri = localConfiguration?.uri ?: return null
+        return AudioTrack(
+            id = mediaId.toLongOrNull() ?: uri.toString().hashCode().toLong(),
+            uri = uri,
+            title = mediaMetadata.title?.toString()?.takeIf(String::isNotBlank)
+                ?: uri.lastPathSegment.orEmpty().ifBlank { "Untitled track" },
+            artist = mediaMetadata.artist?.toString().orEmpty(),
+            album = mediaMetadata.albumTitle?.toString().orEmpty(),
+            durationMs = 0L,
+        )
+    }
+
+    private fun updatePositionPolling() {
+        if (mediaController?.isPlaying != true) {
+            positionJob?.cancel()
+            positionJob = null
+            return
+        }
+        if (positionJob?.isActive == true) return
+
+        positionJob = scope.launch {
+            while (isActive && mediaController?.isPlaying == true) {
+                mediaController?.let(::refreshSnapshot)
+                delay(POSITION_UPDATE_INTERVAL_MS)
+            }
+            positionJob = null
+        }
+    }
+
+    private companion object {
+        const val POSITION_UPDATE_INTERVAL_MS = 1_000L
+        val EMPTY_SNAPSHOT = PlaybackSnapshot(
+            queue = emptyList(),
+            currentIndex = -1,
+            currentTrack = null,
+            isPlaying = false,
+            positionMs = 0L,
+            durationMs = 0L,
+            errorMessage = null,
+        )
+    }
+}
