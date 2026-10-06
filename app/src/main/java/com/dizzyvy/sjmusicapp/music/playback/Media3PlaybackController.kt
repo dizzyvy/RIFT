@@ -38,6 +38,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     private var queuedTracks = emptyList<AudioTrack>()
     private var pendingQueue: Pair<List<AudioTrack>, Int>? = null
     private val pendingAddedTracks = mutableListOf<AudioTrack>()
+    private val pendingPlayNextTracks = mutableListOf<AudioTrack>()
     private var positionJob: Job? = null
     private var released = false
 
@@ -78,6 +79,10 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
                         pendingQueue?.let { (tracks, startIndex) ->
                             pendingQueue = null
                             applyQueue(controller, tracks, startIndex)
+                        }
+                        if (pendingPlayNextTracks.isNotEmpty()) {
+                            insertNext(controller, pendingPlayNextTracks.toList())
+                            pendingPlayNextTracks.clear()
                         }
                         pendingAddedTracks.toList().forEach { controller.addMediaItem(toMediaItem(it)) }
                         pendingAddedTracks.clear()
@@ -153,6 +158,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         queuedTracks = emptyList()
         pendingQueue = null
         pendingAddedTracks.clear()
+        pendingPlayNextTracks.clear()
         mediaController?.clearMediaItems()
         _snapshot.value = EMPTY_SNAPSHOT
     }
@@ -166,6 +172,25 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         }
     }
 
+    override fun playNext(tracks: List<AudioTrack>) {
+        if (tracks.isEmpty()) return
+        val controller = mediaController
+        if (controller != null) {
+            insertNext(controller, tracks)
+        } else {
+            val pending = pendingQueue
+            if (pending != null) {
+                val insertAt = (pending.second + 1).coerceIn(0, pending.first.size)
+                val updated = pending.first.toMutableList().apply { addAll(insertAt, tracks) }
+                pendingQueue = updated to pending.second
+                _snapshot.value = _snapshot.value.copy(queue = updated)
+            } else {
+                pendingPlayNextTracks += tracks
+                _snapshot.value = _snapshot.value.copy(queue = _snapshot.value.queue + tracks)
+            }
+        }
+    }
+
     fun release() {
         if (released) return
         released = true
@@ -174,6 +199,15 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         mediaController = null
         MediaController.releaseFuture(controllerFuture)
         scope.cancel()
+    }
+
+    private fun insertNext(controller: MediaController, tracks: List<AudioTrack>) {
+        if (controller.mediaItemCount == 0) {
+            applyQueue(controller, tracks, 0)
+            return
+        }
+        val insertAt = (controller.currentMediaItemIndex + 1).coerceIn(0, controller.mediaItemCount)
+        controller.addMediaItems(insertAt, tracks.map(::toMediaItem))
     }
 
     private fun applyQueue(controller: MediaController, tracks: List<AudioTrack>, startIndex: Int) {
