@@ -330,9 +330,9 @@ private fun PlaylistBrowseRow(
             Box {
                 TextButton(onClick = { menuOpen = true }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("⋮") }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
+                    if (!playlist.isAuto) DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
                     DropdownMenuItem(text = { Text("Export M3U") }, onClick = { menuOpen = false; onExport() })
-                    DropdownMenuItem(text = { Text("Delete") }, onClick = { menuOpen = false; onDelete() })
+                    if (!playlist.isAuto) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuOpen = false; onDelete() })
                 }
             }
         }
