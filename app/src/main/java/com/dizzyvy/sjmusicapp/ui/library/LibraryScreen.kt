@@ -399,6 +399,7 @@ private fun TrackRow(
 ) {
     val context = LocalContext.current
     var moreMenuOpen by remember { mutableStateOf(false) }
+    var showDetails by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).combinedClickable(onClick = onClick, onLongClick = onLongPress).padding(vertical = 6.dp, horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(52.dp)) else AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
@@ -432,6 +433,7 @@ private fun TrackRow(
                 DropdownMenuItem(text = { Text("Go to artist") }, onClick = { moreMenuOpen = false; onGoArtist() })
                 DropdownMenuItem(text = { Text("Go to album") }, onClick = { moreMenuOpen = false; onGoAlbum() })
                 DropdownMenuItem(text = { Text("Delete from device") }, onClick = { moreMenuOpen = false; onDelete() })
+                DropdownMenuItem(text = { Text("Song details") }, onClick = { moreMenuOpen = false; showDetails = true })
                 DropdownMenuItem(text = { Text("Share") }, onClick = {
                     moreMenuOpen = false
                     val send = Intent(Intent.ACTION_SEND).apply {
@@ -445,6 +447,34 @@ private fun TrackRow(
         }
         TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Add ${track.title} to playlist or queue" }) { Text("+") }
     }
+    if (showDetails) {
+        val format = track.mimeType.substringAfter('/', "").takeIf { it.isNotBlank() }?.uppercase() ?: track.displayName.substringAfterLast('.', "").uppercase().ifBlank { "Unknown" }
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text("Song details") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(track.title, fontWeight = FontWeight.SemiBold)
+                    Text("Artist: ${displayValue(track.artist, "Unknown artist")}")
+                    Text("Album: ${displayValue(track.album, "Unknown album")}")
+                    Text("Format: $format")
+                    Text("Bitrate: ${if (track.bitrate > 0) "${track.bitrate} kbps" else "Unknown"}")
+                    Text("Sample rate: ${if (track.sampleRateHz > 0) "${track.sampleRateHz} Hz" else "Unknown"}")
+                    Text("Size: ${formatAudioSize(track.sizeBytes)}")
+                    Text("Path: ${track.filePath.ifBlank { track.uri.toString() }}", maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text("Duration: ${formatTime(track.durationMs)}")
+                }
+            },
+            confirmButton = { TextButton(onClick = { showDetails = false }) { Text("Done") } },
+        )
+    }
+}
+
+private fun formatAudioSize(bytes: Long): String = when {
+    bytes <= 0 -> "Unknown"
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+    else -> "${"%.1f".format(bytes / (1024.0 * 1024.0))} MB"
 }
 
 @Composable
