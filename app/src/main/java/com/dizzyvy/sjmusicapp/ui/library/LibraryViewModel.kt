@@ -42,6 +42,7 @@ data class LibraryUiState(
     val actionMessage: String? = null,
     val sortOrder: String = "Title",
     val hideShortTracks: Boolean = false,
+    val favoriteUris: Set<String> = emptySet(),
 )
 
 class LibraryViewModel(
@@ -64,6 +65,7 @@ class LibraryViewModel(
             try {
                 val tracks = repository.loadTracks()
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
+                val favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                 val artistTracks = tracks.flatMap { track -> artistNamesForTrack(track).map { name -> name to track } }
                 val artists = artistTracks.groupBy { (name, _) -> name.trim().replace(Regex("\\s+"), "").lowercase() }
                     .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size, entries.first().second.uri) }
@@ -84,6 +86,7 @@ class LibraryViewModel(
                     albums = albums,
                     visibleAlbums = filterAlbums(albums, _state.value.searchQuery),
                     playlists = playlists,
+                    favoriteUris = favoriteUris,
                     visiblePlaylists = filterPlaylists(playlists, _state.value.searchQuery),
                     isLoading = false,
                     permissionRequired = false,
@@ -121,6 +124,19 @@ class LibraryViewModel(
     fun setHideShortTracks(hide: Boolean) {
         val current = _state.value
         _state.value = current.copy(hideShortTracks = hide, visibleTracks = filterTracks(current.tracks, current.searchQuery, current.sortOrder, hide))
+    }
+
+    fun setFavorite(track: AudioTrack, favorite: Boolean) {
+        viewModelScope.launch {
+            runCatching { playlistStore.setFavorite(track.uri, favorite) }
+                .onSuccess {
+                    val favorites = _state.value.favoriteUris.toMutableSet().apply {
+                        if (favorite) add(track.uri.toString()) else remove(track.uri.toString())
+                    }
+                    _state.value = _state.value.copy(favoriteUris = favorites)
+                }
+                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update favorite.") }
+        }
     }
 
     fun shuffleAll() {
@@ -258,7 +274,7 @@ class LibraryViewModel(
 
     fun movePlaylistTrack(fromIndex: Int, toIndex: Int) {
         val playlist = _state.value.activePlaylist ?: return
-        if (!playlist.isLocal) return
+        if (!playlist.isLocal || playlist.isAuto) return
         viewModelScope.launch {
             playlistStore.reorderTrack(playlist.id, fromIndex, toIndex)
             _state.value = _state.value.copy(browseTracks = loadLocalTracks(playlist.id))
