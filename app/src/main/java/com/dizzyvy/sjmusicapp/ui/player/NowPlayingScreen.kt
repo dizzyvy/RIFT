@@ -41,6 +41,7 @@ fun NowPlayingScreen(
     onRepeat: (Int) -> Unit,
     onRemoveQueueItem: (Int) -> Unit,
     onMoveQueueItem: (Int, Int) -> Unit,
+    onRestoreQueueItem: (AudioTrack, Int) -> Unit,
     playlists: List<DevicePlaylist>,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
     onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
@@ -53,6 +54,7 @@ fun NowPlayingScreen(
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
+    val queueSnackbarState = remember { SnackbarHostState() }
     var queueOpen by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -62,6 +64,7 @@ fun NowPlayingScreen(
     var sleepTimerMinutes by remember { mutableStateOf(30) }
     var finishCurrentSong by remember { mutableStateOf(false) }
     var speedMenuOpen by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(scrollState).padding(horizontal = 22.dp)) {
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
         if (track == null) {
@@ -131,7 +134,17 @@ fun NowPlayingScreen(
                 TextButton(onClick = onClearQueue) { Text("Clear") }
             }
             playback.queue.forEachIndexed { index, queued ->
-                QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = { onRemoveQueueItem(index) }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) }, dragModifier = Modifier.pointerInput(index, playback.queue.size) {
+                QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = {
+                    onRemoveQueueItem(index)
+                    scope.launch {
+                        val result = queueSnackbarState.showSnackbar(
+                            message = "Removed ${queued.title} from queue",
+                            actionLabel = "Undo",
+                            withDismissAction = true,
+                        )
+                        if (result == SnackbarResult.ActionPerformed) onRestoreQueueItem(queued, index)
+                    }
+                }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) }, dragModifier = Modifier.pointerInput(index, playback.queue.size) {
                     var accumulatedY = 0f
                     detectDragGesturesAfterLongPress(
                         onDragEnd = { accumulatedY = 0f },
@@ -152,6 +165,8 @@ fun NowPlayingScreen(
             }
         }
         Spacer(Modifier.height(20.dp))
+    }
+    SnackbarHost(hostState = queueSnackbarState, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
     }
     if (showPlaylistSheet) {
         ModalBottomSheet(onDismissRequest = { showPlaylistSheet = false }) {
@@ -218,8 +233,40 @@ fun NowPlayingScreen(
 }
 
 @Composable
-private fun QueueRow(track: AudioTrack, current: Boolean, canMoveUp: Boolean, canMoveDown: Boolean, onSelect: () -> Unit, onRemove: () -> Unit, onMoveUp: () -> Unit, onMoveDown: () -> Unit) {
-    Surface(color = if (current) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+private fun QueueRow(
+    track: AudioTrack,
+    current: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onSelect: () -> Unit,
+    onRemove: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    dragModifier: Modifier = Modifier,
+) {
+    Surface(
+        color = if (current) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        shape = MaterialTheme.shapes.medium,
+        modifier = dragModifier
+            .pointerInput(track.uri) {
+                var horizontalDrag = 0f
+                var handled = false
+                detectHorizontalDragGestures(
+                    onDragEnd = { horizontalDrag = 0f; handled = false },
+                    onDragCancel = { horizontalDrag = 0f; handled = false },
+                    onHorizontalDrag = { change, amount ->
+                        change.consume()
+                        horizontalDrag += amount
+                        if (!handled && kotlin.math.abs(horizontalDrag) >= 110f) {
+                            handled = true
+                            onRemove()
+                        }
+                    },
+                )
+            }
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+    ) {
         Row(Modifier.padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onSelect, modifier = Modifier.weight(1f)) {
                 Column(horizontalAlignment = Alignment.Start) {
