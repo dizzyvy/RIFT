@@ -149,6 +149,14 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     override fun removeQueueItem(index: Int) {
         mediaController?.takeIf { index in 0 until it.mediaItemCount }?.removeMediaItem(index)
     }
+    override fun clearQueue() {
+        queuedTracks = emptyList()
+        pendingQueue = null
+        pendingAddedTracks.clear()
+        mediaController?.clearMediaItems()
+        _snapshot.value = EMPTY_SNAPSHOT
+    }
+
     override fun addQueueItem(track: AudioTrack) {
         val controller = mediaController
         if (controller != null) controller.addMediaItem(toMediaItem(track))
