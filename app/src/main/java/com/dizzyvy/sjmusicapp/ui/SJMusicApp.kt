@@ -202,6 +202,7 @@ fun SJMusicApp(
                 accentName = accentName,
                 onThemeModeChange = onThemeModeChange,
                 onAccentChange = onAccentChange,
+                onToggleFolderHidden = libraryViewModel::setFolderHidden,
             )
         }
       }
