@@ -53,6 +53,7 @@ fun SJMusicApp(
     val context = LocalContext.current
     val refreshScope = rememberCoroutineScope()
     var pendingExportText by remember { mutableStateOf("") }
+    var pendingDeleteUri by remember { mutableStateOf<Uri?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
         if (uri != null) runCatching {
             val output = requireNotNull(context.contentResolver.openOutputStream(uri))
@@ -60,7 +61,13 @@ fun SJMusicApp(
         }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not write the playlist file.") }
     }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
+        val uriToDelete = pendingDeleteUri
+        pendingDeleteUri = null
+        if (result.resultCode == Activity.RESULT_OK) {
+            runCatching { uriToDelete?.let { context.contentResolver.delete(it, null, null) } }
+                .onFailure { libraryViewModel.reportActionError(it.message ?: "Could not delete this song.") }
+            libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
+        }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) runCatching {
@@ -160,6 +167,7 @@ fun SJMusicApp(
                                     context.contentResolver.delete(track.uri, null, null)
                                     libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
                                 } catch (recoverable: RecoverableSecurityException) {
+                                    pendingDeleteUri = track.uri
                                     deleteLauncher.launch(IntentSenderRequest.Builder(recoverable.userAction.actionIntent.intentSender).build())
                                 }
                             }
