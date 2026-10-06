@@ -15,12 +15,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.dizzyvy.sjmusicapp.music.library.MediaStoreAudioLibraryRepository
+import com.dizzyvy.sjmusicapp.music.library.SqlitePlaylistStore
 import com.dizzyvy.sjmusicapp.music.artwork.EmbeddedArtworkRepository
 import com.dizzyvy.sjmusicapp.music.playback.Media3PlaybackController
 import com.dizzyvy.sjmusicapp.ui.SJMusicApp
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: MediaStoreAudioLibraryRepository
+    private lateinit var playlistStore: SqlitePlaylistStore
     private lateinit var playbackController: Media3PlaybackController
     private lateinit var artworkRepository: EmbeddedArtworkRepository
     private val audioPermissionState = mutableStateOf(false)
@@ -30,6 +32,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         repository = MediaStoreAudioLibraryRepository(applicationContext)
+        playlistStore = SqlitePlaylistStore(applicationContext)
         artworkRepository = EmbeddedArtworkRepository(applicationContext)
         playbackController = Media3PlaybackController(applicationContext, artworkRepository)
         requestedAudioPermissionBefore = getPreferences(MODE_PRIVATE)
@@ -42,6 +45,7 @@ class MainActivity : ComponentActivity() {
 
             SJMusicApp(
                 repository = repository,
+                playlistStore = playlistStore,
                 playbackController = playbackController,
                 artworkRepository = artworkRepository,
                 hasAudioPermission = audioPermissionState.value,
@@ -75,6 +79,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (::playbackController.isInitialized) playbackController.release()
+        if (::playlistStore.isInitialized) playlistStore.close()
         super.onDestroy()
     }
 
