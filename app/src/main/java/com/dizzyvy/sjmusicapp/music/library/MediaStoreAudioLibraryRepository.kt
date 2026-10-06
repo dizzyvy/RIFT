@@ -81,12 +81,13 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.YEAR,
             MediaStore.Audio.Media.SIZE,
             MediaStore.Audio.Media.MIME_TYPE,
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.ARTIST_ID,
             MediaStore.Audio.Media.ALBUM_ID,
-        ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST, MediaStore.Audio.Media.BITRATE, MediaStore.Audio.Media.SAMPLERATE) else emptyArray()
+        ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST, MediaStore.Audio.Media.BITRATE, MediaStore.Audio.Media.SAMPLERATE, MediaStore.Audio.Media.GENRE) else emptyArray()
 
         return try {
             resolver.query(
@@ -104,11 +105,13 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
                 val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val dateAddedColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+                val yearColumn = cursor.getColumnIndex(MediaStore.Audio.Media.YEAR)
                 val sizeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
                 val mimeTypeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
                 val dataColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
                 val bitrateColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.BITRATE) else -1
                 val sampleRateColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.SAMPLERATE) else -1
+                val genreColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.GENRE) else -1
                 val artistIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST_ID)
                 val albumIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
 
@@ -137,6 +140,8 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 bitrate = if (bitrateColumn >= 0 && !cursor.isNull(bitrateColumn)) cursor.getInt(bitrateColumn) else -1,
                                 sampleRateHz = if (sampleRateColumn >= 0 && !cursor.isNull(sampleRateColumn)) cursor.getInt(sampleRateColumn) else -1,
                                 filePath = if (dataColumn >= 0) cursor.getString(dataColumn).orEmpty() else "",
+                                genre = if (genreColumn >= 0) cursor.getString(genreColumn).orEmpty() else "",
+                                year = if (yearColumn >= 0 && !cursor.isNull(yearColumn)) cursor.getInt(yearColumn) else 0,
                                 artistId = if (artistIdColumn >= 0) cursor.getLong(artistIdColumn) else -1L,
                                 albumId = if (albumIdColumn >= 0) cursor.getLong(albumIdColumn) else -1L,
                                 volumeName = collection.pathSegments.firstOrNull() ?: "external",
