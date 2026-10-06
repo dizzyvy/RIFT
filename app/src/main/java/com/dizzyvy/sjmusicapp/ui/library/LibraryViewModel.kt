@@ -139,10 +139,10 @@ class LibraryViewModel(
         }
     }
 
-    fun createPlaylist(name: String, trackToAdd: AudioTrack? = null) {
+    fun createPlaylist(name: String, tracksToAdd: List<AudioTrack> = emptyList()) {
         viewModelScope.launch {
             runCatching {
-                playlistStore.createPlaylist(name).also { playlist -> trackToAdd?.let { playlistStore.addTrack(playlist.id, it.uri) } }
+                playlistStore.createPlaylist(name).also { playlist -> tracksToAdd.forEach { playlistStore.addTrack(playlist.id, it.uri) } }
             }
                 .onSuccess { refreshPlaylists() }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not create playlist.") }
@@ -172,6 +172,18 @@ class LibraryViewModel(
                     if (_state.value.activePlaylist?.id == playlist.id) closeGroup()
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not delete playlist.") }
+        }
+    }
+
+    fun addTracksToPlaylist(playlist: DevicePlaylist, tracks: List<AudioTrack>) {
+        if (!playlist.isLocal) return
+        viewModelScope.launch {
+            runCatching { tracks.forEach { playlistStore.addTrack(playlist.id, it.uri) } }
+                .onSuccess {
+                    if (_state.value.activePlaylist?.id == playlist.id) _state.value = _state.value.copy(browseTracks = loadLocalTracks(playlist.id))
+                    _state.value = _state.value.copy(actionMessage = null)
+                }
+                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not add songs to playlist.") }
         }
     }
 
