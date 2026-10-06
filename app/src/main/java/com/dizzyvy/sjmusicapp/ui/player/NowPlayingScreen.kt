@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
+import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
 import com.dizzyvy.sjmusicapp.music.model.AudioTrack
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackSnapshot
 import com.dizzyvy.sjmusicapp.ui.components.AlbumArtwork
@@ -37,11 +38,17 @@ fun NowPlayingScreen(
     onRepeat: (Int) -> Unit,
     onRemoveQueueItem: (Int) -> Unit,
     onMoveQueueItem: (Int, Int) -> Unit,
+    playlists: List<DevicePlaylist>,
+    onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
+    onCreatePlaylist: (String, AudioTrack?) -> Unit,
 ) {
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     var queueOpen by remember { mutableStateOf(false) }
+    var showPlaylistSheet by remember { mutableStateOf(false) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var playlistName by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(scrollState).padding(horizontal = 22.dp)) {
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
         if (track == null) {
@@ -57,6 +64,7 @@ fun NowPlayingScreen(
         Spacer(Modifier.height(18.dp))
         Text(track.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         Text("${track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"}  ·  ${track.album.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown album"}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        TextButton(onClick = { showPlaylistSheet = true }, modifier = Modifier.fillMaxWidth()) { Text("Add to playlist") }
         Spacer(Modifier.height(12.dp))
         Slider(value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()), onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -82,6 +90,25 @@ fun NowPlayingScreen(
             }
         }
         Spacer(Modifier.height(20.dp))
+    }
+    if (showPlaylistSheet) {
+        ModalBottomSheet(onDismissRequest = { showPlaylistSheet = false }) {
+            Text("Add ${track.title} to playlist", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
+            TextButton(onClick = { playlistName = ""; showPlaylistSheet = false; showCreatePlaylistDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
+            playlists.filter { it.isLocal }.forEach { playlist ->
+                TextButton(onClick = { onAddTrackToPlaylist(playlist, track); showPlaylistSheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Add to ${playlist.name}") }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+    if (showCreatePlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylistDialog = false },
+            title = { Text("Create playlist") },
+            text = { OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, singleLine = true, label = { Text("Playlist name") }) },
+            confirmButton = { TextButton(enabled = playlistName.isNotBlank(), onClick = { onCreatePlaylist(playlistName.trim(), track); showCreatePlaylistDialog = false }) { Text("Create") } },
+            dismissButton = { TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Cancel") } },
+        )
     }
 }
 
