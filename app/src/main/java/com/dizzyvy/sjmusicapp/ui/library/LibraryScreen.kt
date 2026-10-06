@@ -46,6 +46,7 @@ fun LibraryScreen(
     playback: PlaybackSnapshot,
     artworkRepository: ArtworkRepository,
     onSearch: (String) -> Unit,
+    onFavorite: (AudioTrack, Boolean) -> Unit,
     onSortOrder: (String) -> Unit,
     onHideShortTracks: (Boolean) -> Unit,
     onRequestPermission: () -> Unit,
@@ -182,9 +183,11 @@ fun LibraryScreen(
                                             else onPlayTrack(track)
                                         },
                                         onAdd = { pendingTracks = listOf(track); showAddSheet = true },
+                                        isFavorite = track.uri.toString() in state.favoriteUris,
+                                        onFavorite = { onFavorite(track, track.uri.toString() !in state.favoriteUris) },
                                         showRemove = state.activePlaylist?.isLocal == true,
                                         onRemove = { onRemoveTrackFromPlaylist(track) },
-                                        showReorder = state.activePlaylist?.isLocal == true,
+                                        showReorder = state.activePlaylist?.isLocal == true && state.activePlaylist?.isAuto != true,
                                         onMoveUp = { if (index > 0) onMovePlaylistTrack(index, index - 1) },
                                         onMoveDown = { if (index < songs.lastIndex) onMovePlaylistTrack(index, index + 1) },
                                         canMoveUp = index > 0,
@@ -233,6 +236,8 @@ fun LibraryScreen(
                                             else onPlayTrack(track)
                                         },
                                         onAdd = { pendingTracks = listOf(track); showAddSheet = true },
+                                        isFavorite = track.uri.toString() in state.favoriteUris,
+                                        onFavorite = { onFavorite(track, track.uri.toString() !in state.favoriteUris) },
                                     )
                                 }
                             }
@@ -344,6 +349,8 @@ private fun TrackRow(
     onLongPress: () -> Unit = {},
     onClick: () -> Unit,
     onAdd: () -> Unit,
+    isFavorite: Boolean = false,
+    onFavorite: () -> Unit = {},
     showRemove: Boolean = false,
     onRemove: () -> Unit = {},
     showReorder: Boolean = false,
@@ -359,6 +366,9 @@ private fun TrackRow(
             Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (playing) Text("♫", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp))
+        TextButton(onClick = onFavorite, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = if (isFavorite) "Remove ${track.title} from favorites" else "Add ${track.title} to favorites" }) {
+            Text(if (isFavorite) "♥" else "♡", color = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (showReorder) {
             Text("⠿", modifier = Modifier.pointerInput(canMoveUp, canMoveDown) {
                 var dragDistance = 0f
