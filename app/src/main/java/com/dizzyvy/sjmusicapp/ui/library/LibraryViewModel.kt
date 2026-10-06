@@ -79,6 +79,7 @@ class LibraryViewModel(
     private val playback: PlaybackController,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
+    private var refreshAfterCurrentLoad = false
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
     init {
@@ -178,6 +179,11 @@ class LibraryViewModel(
                     isLoading = false,
                     message = "Music storage is currently unavailable.",
                 )
+            } finally {
+                if (refreshAfterCurrentLoad) {
+                    refreshAfterCurrentLoad = false
+                    loadLibrary(hasAudioPermission = !_state.value.permissionRequired, forceRefresh = true)
+                }
             }
         }
     }
@@ -212,7 +218,10 @@ class LibraryViewModel(
     fun setFolderHidden(path: String, hidden: Boolean) {
         viewModelScope.launch {
             runCatching { playlistStore.setFolderHidden(path, hidden) }
-                .onSuccess { loadLibrary(hasAudioPermission = !_state.value.permissionRequired, forceRefresh = true) }
+                .onSuccess {
+                    if (_state.value.isLoading) refreshAfterCurrentLoad = true
+                    else loadLibrary(hasAudioPermission = !_state.value.permissionRequired, forceRefresh = true)
+                }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update hidden folders.") }
         }
     }
