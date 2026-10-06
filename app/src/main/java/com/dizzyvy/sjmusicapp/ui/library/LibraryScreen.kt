@@ -144,7 +144,7 @@ fun LibraryScreen(
                         }
                         state.category == "Artists" -> Box(Modifier.fillMaxSize()) {
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
-                                items(state.visibleArtists, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.name, countLabel(item.trackCount, "song"), artworkRepository) { onOpenArtist(item) } }
+                                items(state.visibleArtists, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.name, countLabel(item.trackCount, "song"), artworkRepository, artistInitialFallback = true) { onOpenArtist(item) } }
                             }
                             if (state.searchQuery.isBlank()) AlphaIndexRail(state.visibleArtists.map { it.name }, listState, Modifier.align(Alignment.CenterEnd))
                         }
@@ -320,9 +320,9 @@ fun AlbumTile(track: AudioTrack, artworkRepository: ArtworkRepository, modifier:
 }
 
 @Composable
-private fun BrowseRow(artworkUri: android.net.Uri?, title: String, subtitle: String, artworkRepository: ArtworkRepository, onClick: () -> Unit) {
+private fun BrowseRow(artworkUri: android.net.Uri?, title: String, subtitle: String, artworkRepository: ArtworkRepository, artistInitialFallback: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (artworkUri != null) AlbumArtwork(artworkUri, title, artworkRepository, Modifier.size(48.dp))
+        if (artworkUri != null) AlbumArtwork(artworkUri, title, artworkRepository, Modifier.size(48.dp), fallbackInitial = artistInitialFallback)
         else Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
             Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge)
         }
