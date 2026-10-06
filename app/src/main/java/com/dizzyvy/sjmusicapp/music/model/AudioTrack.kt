@@ -6,6 +6,7 @@ data class AudioTrack(
     val id: Long,
     val uri: Uri,
     val title: String,
+    val displayName: String = "",
     val artist: String,
     val albumArtist: String = "",
     val album: String,
