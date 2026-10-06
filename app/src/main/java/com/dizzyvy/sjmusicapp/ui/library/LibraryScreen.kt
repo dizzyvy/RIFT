@@ -129,7 +129,7 @@ fun LibraryScreen(
                     else if (state.category == "Playlists") "Create your first playlist to keep songs together."
                     else "Add audio files to your phone or SD card, then scan again.",
                     if (state.browseTitle == null && state.category == "Playlists") "Create" else if (state.browseTitle == null) "Scan again" else null,
-                    if (state.browseTitle == null && state.category == "Playlists") ({ trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true })
+                    if (state.browseTitle == null && state.category == "Playlists") ({ tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true })
                     else if (state.browseTitle == null) onRetry else null,
                 )
                 else Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -201,14 +201,14 @@ fun LibraryScreen(
     }
     if (showAddSheet) {
         ModalBottomSheet(onDismissRequest = { showAddSheet = false }) {
-            Text("Add ${pendingTrack?.title.orEmpty()}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
-            TextButton(onClick = { pendingTrack?.let(onAddToQueue); showAddSheet = false; pendingTrack = null }, modifier = Modifier.fillMaxWidth()) { Text("Add to queue") }
+            Text(if (pendingTracks.size == 1) "Add ${pendingTracks.first().title}" else "Add ${pendingTracks.size} songs", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
+            TextButton(onClick = { pendingTracks.forEach(onAddToQueue); showAddSheet = false; pendingTracks = emptyList(); selectedUris = emptySet() }, modifier = Modifier.fillMaxWidth()) { Text("Add to queue") }
             TextButton(onClick = { trackToAddOnCreate = pendingTrack; playlistNameInput = ""; showAddSheet = false; showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
             state.playlists.filter { it.isLocal }.forEach { playlist ->
                 TextButton(onClick = {
-                    pendingTrack?.let { onAddTrackToPlaylist(playlist, it) }
+                    onAddTracksToPlaylist(playlist, pendingTracks)
                     showAddSheet = false
-                    pendingTrack = null
+                    pendingTracks = emptyList(); selectedUris = emptySet()
                 }, modifier = Modifier.fillMaxWidth()) { Text("Add to ${playlist.name}") }
             }
             Spacer(Modifier.height(24.dp))
