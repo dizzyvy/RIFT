@@ -121,6 +121,7 @@ fun SJMusicApp(
                 isFavorite = playback.currentTrack?.uri?.toString() in libraryState.favoriteUris,
                 onFavorite = libraryViewModel::setFavorite,
                 onSetSleepTimer = playbackController::setSleepTimer,
+                onPlaybackSpeed = playbackController::setPlaybackSpeed,
             )
         } else {
             LibraryScreen(
