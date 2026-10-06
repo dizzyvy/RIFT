@@ -117,10 +117,11 @@ fun LibraryScreen(
                     TextButton(onClick = { selectedUris = emptySet() }) { Text("Clear") }
                 }
             }
-            if (state.category in listOf("Songs", "Artists", "Albums")) {
+            if (state.category in listOf("Songs", "Artists", "Albums", "Playlists")) {
                 val placeholder = when (state.category) {
                     "Artists" -> "Search artists"
                     "Albums" -> "Search albums or artists"
+                    "Playlists" -> "Search playlists"
                     else -> "Search songs, artists or albums"
                 }
                 OutlinedTextField(value = state.searchQuery, onValueChange = onSearch, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp), placeholder = { Text(placeholder) }, leadingIcon = { Text("⌕", style = MaterialTheme.typography.headlineSmall) })
@@ -137,7 +138,7 @@ fun LibraryScreen(
                 val hasRows = if (state.browseTitle != null) !state.browseTracks.isNullOrEmpty() else when (state.category) {
                     "Artists" -> state.visibleArtists.isNotEmpty()
                     "Albums" -> state.visibleAlbums.isNotEmpty()
-                    "Playlists" -> state.playlists.isNotEmpty()
+                    "Playlists" -> state.visiblePlaylists.isNotEmpty()
                     else -> songs.isNotEmpty()
                 }
                 if (!hasRows) EmptyPanel(
@@ -191,7 +192,7 @@ fun LibraryScreen(
                             if (state.searchQuery.isBlank()) AlphaIndexRail(state.visibleAlbums.map { it.title }, listState, Modifier.align(Alignment.CenterEnd))
                         }
                         state.category == "Playlists" -> LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
-                            items(state.playlists, key = { "${it.volumeName}:${it.id}" }) { item ->
+                            items(state.visiblePlaylists, key = { "${it.volumeName}:${it.id}" }) { item ->
                                 PlaylistBrowseRow(
                                     playlist = item,
                                     onOpen = { onOpenPlaylist(item) },
