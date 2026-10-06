@@ -46,6 +46,8 @@ fun LibraryScreen(
     playback: PlaybackSnapshot,
     artworkRepository: ArtworkRepository,
     onSearch: (String) -> Unit,
+    onSortOrder: (String) -> Unit,
+    onHideShortTracks: (Boolean) -> Unit,
     onRequestPermission: () -> Unit,
     onRetry: () -> Unit,
     onPlayTrack: (AudioTrack) -> Unit,
@@ -125,8 +127,20 @@ fun LibraryScreen(
                     else -> "Search songs, artists or albums"
                 }
                 OutlinedTextField(value = state.searchQuery, onValueChange = onSearch, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp), placeholder = { Text(placeholder) }, leadingIcon = { Text("⌕", style = MaterialTheme.typography.headlineSmall) })
-                if (state.category == "Songs" && state.visibleTracks.isNotEmpty()) {
-                    TextButton(onClick = onShuffleAll, modifier = Modifier.fillMaxWidth()) { Text("Shuffle all") }
+                if (state.category == "Songs") {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        var sortMenuOpen by remember { mutableStateOf(false) }
+                        Box(Modifier.weight(1f)) {
+                            TextButton(onClick = { sortMenuOpen = true }) { Text("Sort: ${state.sortOrder} ▾") }
+                            DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                                listOf("Title", "Artist", "Date added", "Duration").forEach { order ->
+                                    DropdownMenuItem(text = { Text(order) }, onClick = { onSortOrder(order); sortMenuOpen = false })
+                                }
+                            }
+                        }
+                        FilterChip(selected = state.hideShortTracks, onClick = { onHideShortTracks(!state.hideShortTracks) }, label = { Text("Hide under 30s") })
+                    }
+                    if (state.visibleTracks.isNotEmpty()) TextButton(onClick = onShuffleAll, modifier = Modifier.fillMaxWidth()) { Text("Shuffle all") }
                 }
             }
         }
