@@ -156,10 +156,10 @@ fun NowPlayingScreen(
                         onDrag = { change, amount ->
                             change.consume()
                             accumulatedY += amount.y
-                            if (accumulatedY > 52f && index < playback.queue.lastIndex) {
+                            if (accumulatedY > 52.dp.toPx() && index < playback.queue.lastIndex) {
                                 onMoveQueueItem(index, index + 1)
                                 accumulatedY = 0f
-                            } else if (accumulatedY < -52f && index > 0) {
+                            } else if (accumulatedY < -52.dp.toPx() && index > 0) {
                                 onMoveQueueItem(index, index - 1)
                                 accumulatedY = 0f
                             }
@@ -261,7 +261,7 @@ private fun QueueRow(
                     onHorizontalDrag = { change, amount ->
                         change.consume()
                         horizontalDrag += amount
-                        if (!handled && kotlin.math.abs(horizontalDrag) >= 110f) {
+                        if (!handled && kotlin.math.abs(horizontalDrag) >= 100.dp.toPx()) {
                             handled = true
                             onRemove()
                         }
