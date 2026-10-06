@@ -44,6 +44,8 @@ fun NowPlayingScreen(
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
     onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
     onClearQueue: () -> Unit,
+    isFavorite: Boolean,
+    onFavorite: (AudioTrack, Boolean) -> Unit,
 ) {
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
@@ -74,7 +76,14 @@ fun NowPlayingScreen(
         Spacer(Modifier.height(18.dp))
         Text(track.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         Text("${track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"}  ·  ${track.album.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown album"}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        TextButton(onClick = { showPlaylistSheet = true }, modifier = Modifier.fillMaxWidth()) { Text("Add to playlist") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            TextButton(onClick = { showPlaylistSheet = true }) { Text("Add to playlist") }
+            TextButton(onClick = { onFavorite(track, !isFavorite) }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
+                contentDescription = if (isFavorite) "Remove ${track.title} from favorites" else "Add ${track.title} to favorites"
+            }) {
+                Text(if (isFavorite) "♥ Favorite" else "♡ Favorite", color = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         Spacer(Modifier.height(12.dp))
         Slider(value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()), onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
