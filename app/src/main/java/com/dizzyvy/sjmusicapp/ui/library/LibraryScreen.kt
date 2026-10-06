@@ -88,6 +88,7 @@ fun LibraryScreen(
     accentName: String,
     onThemeModeChange: (String) -> Unit,
     onAccentChange: (String) -> Unit,
+    onToggleFolderHidden: (String, Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -275,6 +276,9 @@ fun LibraryScreen(
                                 else -> state.visibleYears
                             },
                             artworkRepository = artworkRepository,
+                            isFolderList = state.category == "Folders",
+                            hiddenFolderPaths = state.hiddenFolderPaths,
+                            onToggleFolderHidden = onToggleFolderHidden,
                             onOpen = { onOpenCollection(it, state.category) },
                         )
                         state.category == "Duplicates" -> LazyColumn(contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -422,11 +426,31 @@ fun LibraryScreen(
 private fun CollectionList(
     items: List<LibraryCollectionItem>,
     artworkRepository: ArtworkRepository,
+    isFolderList: Boolean = false,
+    hiddenFolderPaths: Set<String> = emptySet(),
+    onToggleFolderHidden: (String, Boolean) -> Unit = { _, _ -> },
     onOpen: (LibraryCollectionItem) -> Unit,
 ) {
     LazyColumn(contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         items(items, key = { it.id }) { item ->
-            BrowseRow(item.artworkUri, item.title, if (item.subtitle == "Year") "${countLabel(item.trackCount, "song")} · ${item.title}" else if (item.subtitle == item.id) countLabel(item.trackCount, "song") else "${item.subtitle} · ${countLabel(item.trackCount, "song")}", artworkRepository) { onOpen(item) }
+            val hidden = isFolderList && item.id in hiddenFolderPaths
+            val subtitle = when {
+                hidden -> "Hidden from library · " + item.id
+                item.subtitle == "Year" -> countLabel(item.trackCount, "song") + " · " + item.title
+                item.subtitle == item.id -> countLabel(item.trackCount, "song")
+                else -> item.subtitle + " · " + countLabel(item.trackCount, "song")
+            }
+            BrowseRow(
+                artworkUri = item.artworkUri,
+                title = item.title,
+                subtitle = subtitle,
+                artworkRepository = artworkRepository,
+                trailingContent = if (isFolderList) {
+                    { TextButton(onClick = { onToggleFolderHidden(item.id, !hidden) }) { Text(if (hidden) "Show" else "Hide") } }
+                } else null,
+            ) {
+                if (hidden) onToggleFolderHidden(item.id, false) else onOpen(item)
+            }
         }
     }
 }
@@ -656,7 +680,15 @@ fun AlbumTile(track: AudioTrack, artworkRepository: ArtworkRepository, modifier:
 }
 
 @Composable
-private fun BrowseRow(artworkUri: android.net.Uri?, title: String, subtitle: String, artworkRepository: ArtworkRepository, artistInitialFallback: Boolean = false, onClick: () -> Unit) {
+private fun BrowseRow(
+    artworkUri: android.net.Uri?,
+    title: String,
+    subtitle: String,
+    artworkRepository: ArtworkRepository,
+    artistInitialFallback: Boolean = false,
+    trailingContent: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         if (artworkUri != null) AlbumArtwork(artworkUri, title, artworkRepository, Modifier.size(48.dp), fallbackInitial = artistInitialFallback)
         else Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
@@ -666,6 +698,7 @@ private fun BrowseRow(artworkUri: android.net.Uri?, title: String, subtitle: Str
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        trailingContent?.invoke()
     }
 }
 
