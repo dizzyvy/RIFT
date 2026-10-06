@@ -130,10 +130,13 @@ class LibraryViewModel(
         viewModelScope.launch {
             runCatching { playlistStore.setFavorite(track.uri, favorite) }
                 .onSuccess {
-                    val favorites = _state.value.favoriteUris.toMutableSet().apply {
+                    val current = _state.value
+                    val favorites = current.favoriteUris.toMutableSet().apply {
                         if (favorite) add(track.uri.toString()) else remove(track.uri.toString())
                     }
-                    _state.value = _state.value.copy(favoriteUris = favorites)
+                    val active = current.activePlaylist
+                    val browseTracks = if (active?.isAuto == true) loadLocalTracks(active.id) else current.browseTracks
+                    _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks)
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update favorite.") }
         }
@@ -244,8 +247,10 @@ class LibraryViewModel(
         viewModelScope.launch {
             runCatching { tracks.forEach { playlistStore.addTrack(playlist.id, it.uri) } }
                 .onSuccess {
-                    if (_state.value.activePlaylist?.id == playlist.id) _state.value = _state.value.copy(browseTracks = loadLocalTracks(playlist.id))
-                    _state.value = _state.value.copy(actionMessage = null)
+                    val current = _state.value
+                    val favorites = if (playlist.isAuto) current.favoriteUris + tracks.map { it.uri.toString() } else current.favoriteUris
+                    val browseTracks = if (current.activePlaylist?.id == playlist.id) loadLocalTracks(playlist.id) else current.browseTracks
+                    _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks, actionMessage = null)
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not add songs to playlist.") }
         }
@@ -256,8 +261,10 @@ class LibraryViewModel(
         viewModelScope.launch {
             runCatching { playlistStore.addTrack(playlist.id, track.uri) }
                 .onSuccess {
-                    if (_state.value.activePlaylist?.id == playlist.id) _state.value = _state.value.copy(browseTracks = loadLocalTracks(playlist.id))
-                    _state.value = _state.value.copy(actionMessage = null)
+                    val current = _state.value
+                    val favorites = if (playlist.isAuto) current.favoriteUris + track.uri.toString() else current.favoriteUris
+                    val browseTracks = if (current.activePlaylist?.id == playlist.id) loadLocalTracks(playlist.id) else current.browseTracks
+                    _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks, actionMessage = null)
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not add song to playlist.") }
         }
