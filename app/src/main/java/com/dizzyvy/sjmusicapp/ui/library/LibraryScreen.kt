@@ -1,5 +1,6 @@
 package com.dizzyvy.sjmusicapp.ui.library
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -27,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -35,6 +37,8 @@ import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
 import com.dizzyvy.sjmusicapp.music.library.librarySection
+import com.dizzyvy.sjmusicapp.music.library.artistGroupKeys
+import com.dizzyvy.sjmusicapp.music.library.albumGroupKey
 import com.dizzyvy.sjmusicapp.music.model.AudioTrack
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackSnapshot
 import com.dizzyvy.sjmusicapp.ui.components.AlbumArtwork
@@ -186,6 +190,10 @@ fun LibraryScreen(
                                         onAdd = { pendingTracks = listOf(track); showAddSheet = true },
                                         isFavorite = track.uri.toString() in state.favoriteUris,
                                         onFavorite = { onFavorite(track, track.uri.toString() !in state.favoriteUris) },
+                                        onPlayNext = { onPlayNext(listOf(track)) },
+                                        onQueue = { onAddToQueue(track) },
+                                        onGoArtist = { state.artists.firstOrNull { it.id in artistGroupKeys(track) }?.let(onOpenArtist) },
+                                        onGoAlbum = { state.albums.firstOrNull { it.id == albumGroupKey(track) }?.let(onOpenAlbum) },
                                         showRemove = state.activePlaylist?.isLocal == true,
                                         onRemove = { onRemoveTrackFromPlaylist(track) },
                                         showReorder = state.activePlaylist?.isLocal == true && state.activePlaylist?.isAuto != true,
@@ -239,6 +247,10 @@ fun LibraryScreen(
                                         onAdd = { pendingTracks = listOf(track); showAddSheet = true },
                                         isFavorite = track.uri.toString() in state.favoriteUris,
                                         onFavorite = { onFavorite(track, track.uri.toString() !in state.favoriteUris) },
+                                        onPlayNext = { onPlayNext(listOf(track)) },
+                                        onQueue = { onAddToQueue(track) },
+                                        onGoArtist = { state.artists.firstOrNull { it.id in artistGroupKeys(track) }?.let(onOpenArtist) },
+                                        onGoAlbum = { state.albums.firstOrNull { it.id == albumGroupKey(track) }?.let(onOpenAlbum) },
                                     )
                                 }
                             }
@@ -353,6 +365,10 @@ private fun TrackRow(
     onAdd: () -> Unit,
     isFavorite: Boolean = false,
     onFavorite: () -> Unit = {},
+    onPlayNext: () -> Unit = {},
+    onQueue: () -> Unit = {},
+    onGoArtist: () -> Unit = {},
+    onGoAlbum: () -> Unit = {},
     showRemove: Boolean = false,
     onRemove: () -> Unit = {},
     showReorder: Boolean = false,
@@ -361,6 +377,8 @@ private fun TrackRow(
     canMoveUp: Boolean = false,
     canMoveDown: Boolean = false,
 ) {
+    val context = LocalContext.current
+    var moreMenuOpen by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).combinedClickable(onClick = onClick, onLongClick = onLongPress).padding(vertical = 6.dp, horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(52.dp)) else AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
@@ -385,6 +403,25 @@ private fun TrackRow(
             TextButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↓") }
         }
         if (showRemove) TextButton(onClick = onRemove, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp).semantics { contentDescription = "Remove ${track.title} from playlist" }) { Text("×") }
+        Box {
+            TextButton(onClick = { moreMenuOpen = true }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "More actions for ${track.title}" }) { Text("⋮") }
+            DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
+                DropdownMenuItem(text = { Text("Play next") }, onClick = { moreMenuOpen = false; onPlayNext() })
+                DropdownMenuItem(text = { Text("Add to queue") }, onClick = { moreMenuOpen = false; onQueue() })
+                DropdownMenuItem(text = { Text("Add to playlist") }, onClick = { moreMenuOpen = false; onAdd() })
+                DropdownMenuItem(text = { Text("Go to artist") }, onClick = { moreMenuOpen = false; onGoArtist() })
+                DropdownMenuItem(text = { Text("Go to album") }, onClick = { moreMenuOpen = false; onGoAlbum() })
+                DropdownMenuItem(text = { Text("Share") }, onClick = {
+                    moreMenuOpen = false
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "audio/*"
+                        putExtra(Intent.EXTRA_STREAM, track.uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, "Share song"))
+                })
+            }
+        }
         TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Add ${track.title} to playlist or queue" }) { Text("+") }
     }
 }
