@@ -130,6 +130,7 @@ fun SJMusicApp(
                 onShuffle = playbackController::setShuffleEnabled,
                 onRepeat = playbackController::setRepeatMode,
                 onRemoveQueueItem = playbackController::removeQueueItem,
+                onRestoreQueueItem = playbackController::restoreQueueItem,
                 onMoveQueueItem = playbackController::moveQueueItem,
                 playlists = libraryState.playlists,
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
