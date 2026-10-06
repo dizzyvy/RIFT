@@ -53,6 +53,7 @@ fun LibraryScreen(
     onRetry: () -> Unit,
     onPlayTrack: (AudioTrack) -> Unit,
     onAddToQueue: (AudioTrack) -> Unit,
+    onPlayNext: (List<AudioTrack>) -> Unit,
     onOpenPlayer: () -> Unit,
     onPlayPause: () -> Unit,
     onShuffleAll: () -> Unit,
@@ -261,6 +262,7 @@ fun LibraryScreen(
     if (showAddSheet) {
         ModalBottomSheet(onDismissRequest = { showAddSheet = false }) {
             Text(if (pendingTracks.size == 1) "Add ${pendingTracks.first().title}" else "Add ${pendingTracks.size} songs", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
+            TextButton(onClick = { onPlayNext(pendingTracks); showAddSheet = false; pendingTracks = emptyList(); selectedUris = emptySet() }, modifier = Modifier.fillMaxWidth()) { Text("Play next") }
             TextButton(onClick = { pendingTracks.forEach(onAddToQueue); showAddSheet = false; pendingTracks = emptyList(); selectedUris = emptySet() }, modifier = Modifier.fillMaxWidth()) { Text("Add to queue") }
             TextButton(onClick = { tracksToAddOnCreate = pendingTracks; playlistNameInput = ""; showAddSheet = false; showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
             state.playlists.filter { it.isLocal }.forEach { playlist ->
