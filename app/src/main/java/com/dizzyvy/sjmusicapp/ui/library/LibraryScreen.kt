@@ -84,6 +84,10 @@ fun LibraryScreen(
     onRemoveTrackFromPlaylist: (AudioTrack) -> Unit,
     onMovePlaylistTrack: (Int, Int) -> Unit,
     onBackFromGroup: () -> Unit,
+    themeMode: String,
+    accentName: String,
+    onThemeModeChange: (String) -> Unit,
+    onAccentChange: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
