@@ -116,6 +116,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 id = id,
                                 uri = ContentUris.withAppendedId(collection, id),
                                 title = title,
+                                displayName = displayName,
                                 artist = cursor.getString(artistColumn).orEmpty(),
                                 albumArtist = if (albumArtistColumn >= 0) cursor.getString(albumArtistColumn).orEmpty() else "",
                                 album = cursor.getString(albumColumn).orEmpty(),
