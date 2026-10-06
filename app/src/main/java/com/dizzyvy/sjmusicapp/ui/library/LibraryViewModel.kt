@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
 import com.dizzyvy.sjmusicapp.music.library.PlaylistStore
+import com.dizzyvy.sjmusicapp.music.library.M3uPlaylistFormat
 import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
@@ -146,6 +147,27 @@ class LibraryViewModel(
             }
                 .onSuccess { refreshPlaylists() }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not create playlist.") }
+        }
+    }
+
+    fun importM3u(name: String, contents: String) {
+        val tracksByUri = _state.value.tracks.associateBy { it.uri.toString() }
+        val tracksByFileName = _state.value.tracks
+            .filter { it.displayName.isNotBlank() }
+            .associateBy { it.displayName.lowercase() }
+        val tracks = M3uPlaylistFormat.entries(contents).mapNotNull { entry ->
+            tracksByUri[entry] ?: tracksByFileName[M3uPlaylistFormat.fileName(entry).lowercase()]
+        }.distinctBy { it.uri }
+        createPlaylist(name.substringBeforeLast('.', name).ifBlank { name }, tracks)
+    }
+
+    fun exportM3u(playlist: DevicePlaylist, onReady: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val tracks = if (playlist.isLocal) loadLocalTracks(playlist.id) else repository.loadPlaylistTracks(playlist)
+                M3uPlaylistFormat.encode(playlist.name, tracks)
+            }.onSuccess(onReady)
+                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not export playlist.") }
         }
     }
 
