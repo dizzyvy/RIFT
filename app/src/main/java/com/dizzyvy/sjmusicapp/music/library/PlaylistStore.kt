@@ -73,6 +73,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
             put("uri", uri.toString())
             put("position", position)
         }, SQLiteDatabase.CONFLICT_IGNORE)
+        Unit
     }
 
     override suspend fun removeTrack(playlistId: Long, uri: Uri) = withContext(Dispatchers.IO) {
