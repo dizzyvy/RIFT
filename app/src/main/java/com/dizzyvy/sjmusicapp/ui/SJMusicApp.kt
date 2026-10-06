@@ -74,6 +74,10 @@ fun SJMusicApp(
                 onOpenArtist = libraryViewModel::openArtist,
                 onOpenAlbum = libraryViewModel::openAlbum,
                 onOpenPlaylist = libraryViewModel::openPlaylist,
+                onCreatePlaylist = libraryViewModel::createPlaylist,
+                onRenamePlaylist = libraryViewModel::renamePlaylist,
+                onDeletePlaylist = libraryViewModel::deletePlaylist,
+                onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
                 onBackFromGroup = libraryViewModel::closeGroup,
             )
         }
