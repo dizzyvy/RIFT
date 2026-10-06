@@ -56,7 +56,7 @@ fun NowPlayingScreen(
         AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(280.dp))
         Spacer(Modifier.height(18.dp))
         Text(track.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Text("${track.artist.ifBlank { "Unknown artist" }}  ·  ${track.album.ifBlank { "Unknown album" }}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"}  ·  ${track.album.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown album"}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(12.dp))
         Slider(value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()), onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
