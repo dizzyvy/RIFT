@@ -26,6 +26,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var playbackController: Media3PlaybackController
     private lateinit var artworkRepository: EmbeddedArtworkRepository
     private val audioPermissionState = mutableStateOf(false)
+    private val themeModeState = mutableStateOf("light")
+    private val accentNameState = mutableStateOf("Coral")
     private var requestedAudioPermissionBefore = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +40,8 @@ class MainActivity : ComponentActivity() {
         requestedAudioPermissionBefore = getPreferences(MODE_PRIVATE)
             .getBoolean(KEY_REQUESTED_AUDIO_PERMISSION, false)
         audioPermissionState.value = hasAudioPermission()
+        themeModeState.value = getPreferences(MODE_PRIVATE).getString(KEY_THEME_MODE, "light") ?: "light"
+        accentNameState.value = getPreferences(MODE_PRIVATE).getString(KEY_ACCENT_NAME, "Coral") ?: "Coral"
         setContent {
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission(),
@@ -49,6 +53,16 @@ class MainActivity : ComponentActivity() {
                 playbackController = playbackController,
                 artworkRepository = artworkRepository,
                 hasAudioPermission = audioPermissionState.value,
+                themeMode = themeModeState.value,
+                accentName = accentNameState.value,
+                onThemeModeChange = { value ->
+                    themeModeState.value = value
+                    getPreferences(MODE_PRIVATE).edit().putString(KEY_THEME_MODE, value).apply()
+                },
+                onAccentChange = { value ->
+                    accentNameState.value = value
+                    getPreferences(MODE_PRIVATE).edit().putString(KEY_ACCENT_NAME, value).apply()
+                },
                 onRequestPermission = {
                     val permission = requiredAudioPermission()
                     if (requestedAudioPermissionBefore && !shouldShowRequestPermissionRationale(permission)) {
@@ -96,5 +110,7 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val KEY_REQUESTED_AUDIO_PERMISSION = "requested_audio_permission"
+        const val KEY_THEME_MODE = "theme_mode"
+        const val KEY_ACCENT_NAME = "accent_name"
     }
 }
