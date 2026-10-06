@@ -150,15 +150,22 @@ fun SJMusicApp(
                 onPlayNext = playbackController::playNext,
                 onDeleteTrack = { track ->
                     runCatching {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            val request = MediaStore.createDeleteRequest(context.contentResolver, listOf(track.uri))
-                            deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
-                        } else {
-                            try {
+                        when {
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                                val request = MediaStore.createDeleteRequest(context.contentResolver, listOf(track.uri))
+                                deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                            }
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                                try {
+                                    context.contentResolver.delete(track.uri, null, null)
+                                    libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
+                                } catch (recoverable: RecoverableSecurityException) {
+                                    deleteLauncher.launch(IntentSenderRequest.Builder(recoverable.userAction.actionIntent.intentSender).build())
+                                }
+                            }
+                            else -> {
                                 context.contentResolver.delete(track.uri, null, null)
                                 libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
-                            } catch (recoverable: RecoverableSecurityException) {
-                                deleteLauncher.launch(IntentSenderRequest.Builder(recoverable.userAction.actionIntent.intentSender).build())
                             }
                         }
                     }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not delete this song.") }
