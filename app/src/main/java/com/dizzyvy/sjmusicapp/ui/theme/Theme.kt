@@ -7,9 +7,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private fun accentColor(name: String): Color = when (name.lowercase()) {
-    "blue" -> SJBlue
-    "green" -> SJGreen
-    "gold" -> SJSunshine
+    "red" -> Color(0xFFD92338)
+    "orange" -> Color(0xFFE66B1E)
+    "yellow", "gold" -> Color(0xFFF2C230)
+    "green" -> Color(0xFF54A96A)
+    "blue" -> Color(0xFF208BCE)
+    "purple" -> Color(0xFF8758B8)
+    "pink" -> Color(0xFFD95791)
+    "silver" -> Color(0xFF9AA4AE)
+    "graphite" -> Color(0xFF454B54)
     else -> SJCoral
 }
 
@@ -20,11 +26,11 @@ fun SJMusicTheme(
     content: @Composable () -> Unit,
 ) {
     val accentColor = accentColor(accent)
-    val goldAccent = accent.equals("gold", ignoreCase = true)
+    val darkAccentLabel = accent.lowercase() in setOf("gold", "yellow", "orange", "silver")
     val palette = when (mode.lowercase()) {
         "dark" -> darkColorScheme(
             primary = accentColor,
-            onPrimary = if (goldAccent) Ink else Color.White,
+            onPrimary = if (darkAccentLabel) Ink else Color.White,
             secondary = SJBlue,
             onSecondary = Color.White,
             tertiary = SJSunshine,
