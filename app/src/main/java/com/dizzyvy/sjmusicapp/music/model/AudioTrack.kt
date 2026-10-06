@@ -17,6 +17,8 @@ data class AudioTrack(
     val bitrate: Int = -1,
     val sampleRateHz: Int = -1,
     val filePath: String = "",
+    val genre: String = "",
+    val year: Int = 0,
     val artistId: Long = -1L,
     val albumId: Long = -1L,
     val volumeName: String = "external",
