@@ -40,7 +40,7 @@ fun NowPlayingScreen(
     onMoveQueueItem: (Int, Int) -> Unit,
     playlists: List<DevicePlaylist>,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
-    onCreatePlaylist: (String, AudioTrack?) -> Unit,
+    onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
 ) {
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
@@ -106,7 +106,7 @@ fun NowPlayingScreen(
             onDismissRequest = { showCreatePlaylistDialog = false },
             title = { Text("Create playlist") },
             text = { OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, singleLine = true, label = { Text("Playlist name") }) },
-            confirmButton = { TextButton(enabled = playlistName.isNotBlank(), onClick = { onCreatePlaylist(playlistName.trim(), track); showCreatePlaylistDialog = false }) { Text("Create") } },
+            confirmButton = { TextButton(enabled = playlistName.isNotBlank(), onClick = { onCreatePlaylist(playlistName.trim(), listOf(track)); showCreatePlaylistDialog = false }) { Text("Create") } },
             dismissButton = { TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Cancel") } },
         )
     }
