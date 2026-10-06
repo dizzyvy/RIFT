@@ -56,7 +56,7 @@ fun SJMusicApp(
                 onMoveQueueItem = playbackController::moveQueueItem,
                 playlists = libraryState.playlists,
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
-                onCreatePlaylist = libraryViewModel::createPlaylist,
+                onCreatePlaylist = { name, tracks -> libraryViewModel.createPlaylist(name, tracks) },
             )
         } else {
             LibraryScreen(
@@ -81,6 +81,7 @@ fun SJMusicApp(
                 onRenamePlaylist = libraryViewModel::renamePlaylist,
                 onDeletePlaylist = libraryViewModel::deletePlaylist,
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
+                onAddTracksToPlaylist = libraryViewModel::addTracksToPlaylist,
                 onPlayPlaylist = libraryViewModel::playPlaylist,
                 onRemoveTrackFromPlaylist = libraryViewModel::removeTrackFromPlaylist,
                 onMovePlaylistTrack = libraryViewModel::movePlaylistTrack,
