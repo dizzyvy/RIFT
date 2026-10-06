@@ -52,6 +52,7 @@ fun LibraryScreen(
     onAddToQueue: (AudioTrack) -> Unit,
     onOpenPlayer: () -> Unit,
     onPlayPause: () -> Unit,
+    onShuffleAll: () -> Unit,
     onPreviousTrack: () -> Unit,
     onNextTrack: () -> Unit,
     onCategory: (String) -> Unit,
@@ -123,6 +124,9 @@ fun LibraryScreen(
                     else -> "Search songs, artists or albums"
                 }
                 OutlinedTextField(value = state.searchQuery, onValueChange = onSearch, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp), placeholder = { Text(placeholder) }, leadingIcon = { Text("⌕", style = MaterialTheme.typography.headlineSmall) })
+                if (state.category == "Songs" && state.visibleTracks.isNotEmpty()) {
+                    TextButton(onClick = onShuffleAll, modifier = Modifier.fillMaxWidth()) { Text("Shuffle all") }
+                }
             }
         }
         when {
