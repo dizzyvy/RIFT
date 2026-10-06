@@ -155,6 +155,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     }
 
     override fun setShuffleEnabled(enabled: Boolean) { mediaController?.shuffleModeEnabled = enabled }
+    override fun setPlaybackSpeed(speed: Float) { mediaController?.setPlaybackSpeed(speed.coerceIn(0.5f, 2f)) }
     override fun setRepeatMode(mode: Int) { mediaController?.repeatMode = mode }
     override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         mediaController?.takeIf { fromIndex in 0 until it.mediaItemCount && toIndex in 0 until it.mediaItemCount }?.moveMediaItem(fromIndex, toIndex)
@@ -289,6 +290,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             durationMs = duration,
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
+            playbackSpeed = player.playbackParameters.speed,
         )
     }
 
