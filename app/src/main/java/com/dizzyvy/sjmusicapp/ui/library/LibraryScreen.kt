@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -331,6 +333,15 @@ private fun TrackRow(
         }
         if (playing) Text("♫", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp))
         if (showReorder) {
+            Text("⠿", modifier = Modifier.pointerInput(canMoveUp, canMoveDown) {
+                var dragDistance = 0f
+                detectDragGesturesAfterLongPress(onDragEnd = { dragDistance = 0f }, onDragCancel = { dragDistance = 0f }) { change, dragAmount ->
+                    change.consume()
+                    dragDistance += dragAmount.y
+                    if (dragDistance > 48f && canMoveDown) { onMoveDown(); dragDistance = 0f }
+                    if (dragDistance < -48f && canMoveUp) { onMoveUp(); dragDistance = 0f }
+                }
+            }.padding(horizontal = 6.dp))
             TextButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↑") }
             TextButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↓") }
         }
