@@ -130,9 +130,9 @@ fun LibraryScreen(
                             DropdownMenuItem(text = { Text(if (themeMode == value) "✓ $label" else label) }, onClick = { onThemeModeChange(value); appearanceMenuOpen = false })
                         }
                         HorizontalDivider()
-                        Text("ACCENT", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        listOf("Coral", "Blue", "Green", "Gold").forEach { color ->
-                            DropdownMenuItem(text = { Text(if (accentName.equals(color, true)) "✓ $color" else color) }, onClick = { onAccentChange(color); appearanceMenuOpen = false })
+                        Text("NANO CHROMATIC", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        listOf("Coral", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Silver", "Graphite").forEach { color ->
+                            DropdownMenuItem(text = { Text(if (accentName.equals(color, true)) "✓ $color" else "● $color") }, onClick = { onAccentChange(color); appearanceMenuOpen = false })
                         }
                     }
                 }
