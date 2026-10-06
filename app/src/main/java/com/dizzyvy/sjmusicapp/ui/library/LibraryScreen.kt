@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +56,9 @@ fun LibraryScreen(
     onRenamePlaylist: (DevicePlaylist, String) -> Unit,
     onDeletePlaylist: (DevicePlaylist) -> Unit,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
+    onPlayPlaylist: (Boolean) -> Unit,
+    onRemoveTrackFromPlaylist: (AudioTrack) -> Unit,
+    onMovePlaylistTrack: (Int, Int) -> Unit,
     onBackFromGroup: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -72,6 +76,12 @@ fun LibraryScreen(
         if (state.browseTitle != null) {
             TextButton(onClick = onBackFromGroup, modifier = Modifier.padding(top = 2.dp)) { Text("‹  ${state.category.uppercase()}") }
             Text(state.browseTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+            if (state.activePlaylist?.isLocal == true) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onPlayPlaylist(false) }, modifier = Modifier.weight(1f)) { Text("Play all") }
+                    OutlinedButton(onClick = { onPlayPlaylist(true) }, modifier = Modifier.weight(1f)) { Text("Shuffle") }
+                }
+            }
         } else if (!isScrolled) {
             Spacer(Modifier.height(5.dp))
             Text("SJ MUSIC", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
@@ -114,7 +124,22 @@ fun LibraryScreen(
                     when {
                         state.browseTitle != null -> {
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { pendingTrack = track; showAddSheet = true }) }
+                                itemsIndexed(songs, key = { _, track -> track.uri.toString() }) { index, track ->
+                                    TrackRow(
+                                        track = track,
+                                        artworkRepository = artworkRepository,
+                                        playing = playback.currentTrack?.uri == track.uri && playback.isPlaying,
+                                        onClick = { onPlayTrack(track) },
+                                        onAdd = { pendingTrack = track; showAddSheet = true },
+                                        showRemove = state.activePlaylist?.isLocal == true,
+                                        onRemove = { onRemoveTrackFromPlaylist(track) },
+                                        showReorder = state.activePlaylist?.isLocal == true,
+                                        onMoveUp = { if (index > 0) onMovePlaylistTrack(index, index - 1) },
+                                        onMoveDown = { if (index < songs.lastIndex) onMovePlaylistTrack(index, index + 1) },
+                                        canMoveUp = index > 0,
+                                        canMoveDown = index < songs.lastIndex,
+                                    )
+                                }
                             }
                         }
                         state.category == "Artists" -> Box(Modifier.fillMaxSize()) {
@@ -242,7 +267,20 @@ private fun PlaylistBrowseRow(
 }
 
 @Composable
-private fun TrackRow(track: AudioTrack, artworkRepository: ArtworkRepository, playing: Boolean, onClick: () -> Unit, onAdd: () -> Unit) {
+private fun TrackRow(
+    track: AudioTrack,
+    artworkRepository: ArtworkRepository,
+    playing: Boolean,
+    onClick: () -> Unit,
+    onAdd: () -> Unit,
+    showRemove: Boolean = false,
+    onRemove: () -> Unit = {},
+    showReorder: Boolean = false,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
+    canMoveUp: Boolean = false,
+    canMoveDown: Boolean = false,
+) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(onClick = onClick).padding(vertical = 6.dp, horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
@@ -250,7 +288,12 @@ private fun TrackRow(track: AudioTrack, artworkRepository: ArtworkRepository, pl
             Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (playing) Text("♫", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp))
-        TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Add ${track.title} to queue" }) { Text("+") }
+        if (showReorder) {
+            TextButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↑") }
+            TextButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↓") }
+        }
+        if (showRemove) TextButton(onClick = onRemove, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp).semantics { contentDescription = "Remove ${track.title} from playlist" }) { Text("×") }
+        TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Add ${track.title} to playlist or queue" }) { Text("+") }
     }
 }
 
