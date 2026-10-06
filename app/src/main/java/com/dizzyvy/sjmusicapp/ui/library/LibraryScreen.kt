@@ -2,6 +2,7 @@ package com.dizzyvy.sjmusicapp.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +58,7 @@ fun LibraryScreen(
     onRenamePlaylist: (DevicePlaylist, String) -> Unit,
     onDeletePlaylist: (DevicePlaylist) -> Unit,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
+    onAddTracksToPlaylist: (DevicePlaylist, List<AudioTrack>) -> Unit,
     onPlayPlaylist: (Boolean) -> Unit,
     onRemoveTrackFromPlaylist: (AudioTrack) -> Unit,
     onMovePlaylistTrack: (Int, Int) -> Unit,
@@ -64,14 +67,17 @@ fun LibraryScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val isScrolled = listState.firstVisibleItemIndex > 0
-    var pendingTrack by remember { mutableStateOf<AudioTrack?>(null) }
+    var pendingTracks by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
+    var selectedUris by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showAddSheet by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
-    var trackToAddOnCreate by remember { mutableStateOf<AudioTrack?>(null) }
+    var tracksToAddOnCreate by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
     var playlistToRename by remember { mutableStateOf<DevicePlaylist?>(null) }
     var playlistToDelete by remember { mutableStateOf<DevicePlaylist?>(null) }
     var playlistNameInput by remember { mutableStateOf("") }
     val songs = state.browseTracks ?: state.visibleTracks
+    val selectedTracks = state.tracks.filter { it.uri.toString() in selectedUris }
+    LaunchedEffect(state.category, state.browseTitle) { selectedUris = emptySet() }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 18.dp)) {
         if (state.browseTitle != null) {
             TextButton(onClick = onBackFromGroup, modifier = Modifier.padding(top = 2.dp)) { Text("‹  ${state.category.uppercase()}") }
@@ -93,7 +99,7 @@ fun LibraryScreen(
                     FilterChip(selected = state.category == tab, onClick = { onCategory(tab) }, label = { Text(tab) })
                 }
                 if (state.category == "Playlists") {
-                    TextButton(onClick = { trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
+                    TextButton(onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
                 }
             }
             if (state.category in listOf("Songs", "Artists", "Albums")) {
@@ -136,7 +142,7 @@ fun LibraryScreen(
                                         artworkRepository = artworkRepository,
                                         playing = playback.currentTrack?.uri == track.uri && playback.isPlaying,
                                         onClick = { onPlayTrack(track) },
-                                        onAdd = { pendingTrack = track; showAddSheet = true },
+                                        onAdd = { pendingTracks = listOf(track); showAddSheet = true },
                                         showRemove = state.activePlaylist?.isLocal == true,
                                         onRemove = { onRemoveTrackFromPlaylist(track) },
                                         showReorder = state.activePlaylist?.isLocal == true,
