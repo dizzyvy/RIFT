@@ -58,6 +58,7 @@ fun LibraryScreen(
     onPlayTrack: (AudioTrack) -> Unit,
     onAddToQueue: (AudioTrack) -> Unit,
     onPlayNext: (List<AudioTrack>) -> Unit,
+    onDeleteTrack: (AudioTrack) -> Unit,
     onOpenPlayer: () -> Unit,
     onPlayPause: () -> Unit,
     onShuffleAll: () -> Unit,
@@ -90,6 +91,7 @@ fun LibraryScreen(
     var playlistToRename by remember { mutableStateOf<DevicePlaylist?>(null) }
     var playlistToDelete by remember { mutableStateOf<DevicePlaylist?>(null) }
     var playlistNameInput by remember { mutableStateOf("") }
+    var trackToDelete by remember { mutableStateOf<AudioTrack?>(null) }
     val songs = state.browseTracks ?: state.visibleTracks
     val selectedTracks = state.tracks.filter { it.uri.toString() in selectedUris }
     LaunchedEffect(state.category, state.browseTitle) { selectedUris = emptySet() }
@@ -194,6 +196,7 @@ fun LibraryScreen(
                                         onQueue = { onAddToQueue(track) },
                                         onGoArtist = { state.artists.firstOrNull { it.id in artistGroupKeys(track) }?.let(onOpenArtist) },
                                         onGoAlbum = { state.albums.firstOrNull { it.id == albumGroupKey(track) }?.let(onOpenAlbum) },
+                                        onDelete = { trackToDelete = track },
                                         showRemove = state.activePlaylist?.isLocal == true,
                                         onRemove = { onRemoveTrackFromPlaylist(track) },
                                         showReorder = state.activePlaylist?.isLocal == true && state.activePlaylist?.isAuto != true,
@@ -251,6 +254,7 @@ fun LibraryScreen(
                                         onQueue = { onAddToQueue(track) },
                                         onGoArtist = { state.artists.firstOrNull { it.id in artistGroupKeys(track) }?.let(onOpenArtist) },
                                         onGoAlbum = { state.albums.firstOrNull { it.id == albumGroupKey(track) }?.let(onOpenAlbum) },
+                                        onDelete = { trackToDelete = track },
                                     )
                                 }
                             }
@@ -271,6 +275,21 @@ fun LibraryScreen(
             }
         }
     }
+    trackToDelete?.let { track ->
+        AlertDialog(
+            onDismissRequest = { trackToDelete = null },
+            title = { Text("Delete from device?") },
+            text = { Text("Delete ${track.title} from this device? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteTrack(track)
+                    trackToDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { trackToDelete = null }) { Text("Cancel") } },
+        )
+    }
+
     if (showAddSheet) {
         ModalBottomSheet(onDismissRequest = { showAddSheet = false }) {
             Text(if (pendingTracks.size == 1) "Add ${pendingTracks.first().title}" else "Add ${pendingTracks.size} songs", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
@@ -369,6 +388,7 @@ private fun TrackRow(
     onQueue: () -> Unit = {},
     onGoArtist: () -> Unit = {},
     onGoAlbum: () -> Unit = {},
+    onDelete: () -> Unit = {},
     showRemove: Boolean = false,
     onRemove: () -> Unit = {},
     showReorder: Boolean = false,
@@ -411,6 +431,7 @@ private fun TrackRow(
                 DropdownMenuItem(text = { Text("Add to playlist") }, onClick = { moreMenuOpen = false; onAdd() })
                 DropdownMenuItem(text = { Text("Go to artist") }, onClick = { moreMenuOpen = false; onGoArtist() })
                 DropdownMenuItem(text = { Text("Go to album") }, onClick = { moreMenuOpen = false; onGoAlbum() })
+                DropdownMenuItem(text = { Text("Delete from device") }, onClick = { moreMenuOpen = false; onDelete() })
                 DropdownMenuItem(text = { Text("Share") }, onClick = {
                     moreMenuOpen = false
                     val send = Intent(Intent.ACTION_SEND).apply {
