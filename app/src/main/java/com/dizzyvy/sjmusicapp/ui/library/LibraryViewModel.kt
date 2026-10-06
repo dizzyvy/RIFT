@@ -9,6 +9,8 @@ import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
 import com.dizzyvy.sjmusicapp.music.library.librarySection
 import com.dizzyvy.sjmusicapp.music.library.artistGroupKey
+import com.dizzyvy.sjmusicapp.music.library.artistGroupKeys
+import com.dizzyvy.sjmusicapp.music.library.artistNamesForTrack
 import com.dizzyvy.sjmusicapp.music.library.albumGroupKey
 import com.dizzyvy.sjmusicapp.music.model.AudioTrack
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackController
@@ -27,7 +29,9 @@ data class LibraryUiState(
     val message: String? = null,
     val category: String = "Songs",
     val artists: List<ArtistBrowseItem> = emptyList(),
+    val visibleArtists: List<ArtistBrowseItem> = emptyList(),
     val albums: List<AlbumBrowseItem> = emptyList(),
+    val visibleAlbums: List<AlbumBrowseItem> = emptyList(),
     val playlists: List<DevicePlaylist> = emptyList(),
     val browseTitle: String? = null,
     val browseTracks: List<AudioTrack>? = null,
@@ -52,17 +56,25 @@ class LibraryViewModel(
             try {
                 val tracks = repository.loadTracks()
                 val playlists = repository.loadPlaylists()
-                val artists = tracks.groupBy(::artistGroupKey)
-                    .map { (id, items) -> ArtistBrowseItem(id, items.first().artist.ifBlank { "Unknown artist" }, items.size) }
+                val artistTracks = tracks.flatMap { track -> artistNamesForTrack(track).map { name -> name to track } }
+                val artists = artistTracks.groupBy { (name, _) -> name.trim().replace(Regex("\\s+"), "").lowercase() }
+                    .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size, entries.first().second.uri) }
                     .sortedWith(compareBy<ArtistBrowseItem> { if (librarySection(it.name) == '#') 0 else 1 }.thenBy { librarySection(it.name) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
                 val albums = tracks.groupBy(::albumGroupKey)
-                    .map { (id, items) -> AlbumBrowseItem(id, items.first().album.ifBlank { "Unknown album" }, items.first().artist, items.size) }
+                    .map { (id, items) ->
+                        val first = items.first()
+                        val title = first.album.takeUnless { it.isBlank() || it.equals("<unknown>", true) } ?: "Unknown album"
+                        val artist = first.albumArtist.ifBlank { artistNamesForTrack(first).joinToString(", ") }
+                        AlbumBrowseItem(id, title, artist, items.size, first.uri)
+                    }
                     .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 _state.value = _state.value.copy(
                     tracks = tracks,
                     visibleTracks = filterTracks(tracks, _state.value.searchQuery),
                     artists = artists,
+                    visibleArtists = filterArtists(artists, _state.value.searchQuery),
                     albums = albums,
+                    visibleAlbums = filterAlbums(albums, _state.value.searchQuery),
                     playlists = playlists,
                     isLoading = false,
                     permissionRequired = false,
@@ -86,6 +98,8 @@ class LibraryViewModel(
         _state.value = current.copy(
             searchQuery = query,
             visibleTracks = filterTracks(current.tracks, query),
+            visibleArtists = filterArtists(current.artists, query),
+            visibleAlbums = filterAlbums(current.albums, query),
         )
     }
 
@@ -104,7 +118,7 @@ class LibraryViewModel(
         _state.value = _state.value.copy(browseTitle = null, browseTracks = null)
     }
 
-    fun openArtist(item: ArtistBrowseItem) = openGroup(item.name) { artistGroupKey(it) == item.id }
+    fun openArtist(item: ArtistBrowseItem) = openGroup(item.name) { item.id in artistGroupKeys(it) }
     fun openAlbum(item: AlbumBrowseItem) = openGroup(item.title) { albumGroupKey(it) == item.id }
 
     fun openPlaylist(item: DevicePlaylist) {
@@ -118,6 +132,12 @@ class LibraryViewModel(
         val tracks = _state.value.tracks.filter(predicate)
         _state.value = _state.value.copy(browseTitle = title, browseTracks = tracks)
     }
+
+    private fun filterArtists(artists: List<ArtistBrowseItem>, query: String): List<ArtistBrowseItem> =
+        artists.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+
+    private fun filterAlbums(albums: List<AlbumBrowseItem>, query: String): List<AlbumBrowseItem> =
+        albums.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) || it.artist.contains(query.trim(), ignoreCase = true) }
 
     private fun filterTracks(tracks: List<AudioTrack>, query: String): List<AudioTrack> {
         val needle = query.trim()
