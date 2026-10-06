@@ -54,7 +54,7 @@ fun LibraryScreen(
     onOpenArtist: (ArtistBrowseItem) -> Unit,
     onOpenAlbum: (AlbumBrowseItem) -> Unit,
     onOpenPlaylist: (DevicePlaylist) -> Unit,
-    onCreatePlaylist: (String, AudioTrack?) -> Unit,
+    onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
     onRenamePlaylist: (DevicePlaylist, String) -> Unit,
     onDeletePlaylist: (DevicePlaylist) -> Unit,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
@@ -243,7 +243,7 @@ fun LibraryScreen(
     }
     if (showCreateDialog) {
         AlertDialog(
-            onDismissRequest = { showCreateDialog = false; tracksToAddOnCreate = null },
+            onDismissRequest = { showCreateDialog = false; tracksToAddOnCreate = emptyList() },
             title = { Text("Create playlist") },
             text = { OutlinedTextField(value = playlistNameInput, onValueChange = { playlistNameInput = it }, singleLine = true, label = { Text("Playlist name") }) },
             confirmButton = {
@@ -251,7 +251,7 @@ fun LibraryScreen(
                     onCreatePlaylist(playlistNameInput.trim(), tracksToAddOnCreate)
                     showCreateDialog = false
                     tracksToAddOnCreate = null
-                    pendingTracks = null
+                    pendingTracks = emptyList()
                 }) { Text("Create") }
             },
             dismissButton = { TextButton(onClick = { showCreateDialog = false; tracksToAddOnCreate = null }) { Text("Cancel") } },
