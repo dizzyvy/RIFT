@@ -107,6 +107,13 @@ class LibraryViewModel(
         )
     }
 
+    fun playPlaylist(shuffle: Boolean) {
+        val tracks = _state.value.browseTracks.orEmpty()
+        if (tracks.isEmpty()) return
+        playback.setQueue(tracks, 0)
+        playback.setShuffleEnabled(shuffle)
+    }
+
     fun playTrack(track: AudioTrack) {
         val current = _state.value
         val tracks = current.browseTracks ?: current.visibleTracks
