@@ -40,6 +40,8 @@ data class LibraryUiState(
     val browseTracks: List<AudioTrack>? = null,
     val activePlaylist: DevicePlaylist? = null,
     val actionMessage: String? = null,
+    val sortOrder: String = "Title",
+    val hideShortTracks: Boolean = false,
 )
 
 class LibraryViewModel(
@@ -76,7 +78,7 @@ class LibraryViewModel(
                     .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 _state.value = _state.value.copy(
                     tracks = tracks,
-                    visibleTracks = filterTracks(tracks, _state.value.searchQuery),
+                    visibleTracks = filterTracks(tracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
                     artists = artists,
                     visibleArtists = filterArtists(artists, _state.value.searchQuery),
                     albums = albums,
@@ -104,11 +106,21 @@ class LibraryViewModel(
         val current = _state.value
         _state.value = current.copy(
             searchQuery = query,
-            visibleTracks = filterTracks(current.tracks, query),
+            visibleTracks = filterTracks(current.tracks, query, current.sortOrder, current.hideShortTracks),
             visibleArtists = filterArtists(current.artists, query),
             visibleAlbums = filterAlbums(current.albums, query),
             visiblePlaylists = filterPlaylists(current.playlists, query),
         )
+    }
+
+    fun setSortOrder(order: String) {
+        val current = _state.value
+        _state.value = current.copy(sortOrder = order, visibleTracks = filterTracks(current.tracks, current.searchQuery, order, current.hideShortTracks))
+    }
+
+    fun setHideShortTracks(hide: Boolean) {
+        val current = _state.value
+        _state.value = current.copy(hideShortTracks = hide, visibleTracks = filterTracks(current.tracks, current.searchQuery, current.sortOrder, hide))
     }
 
     fun shuffleAll() {
@@ -277,16 +289,20 @@ class LibraryViewModel(
     private fun filterAlbums(albums: List<AlbumBrowseItem>, query: String): List<AlbumBrowseItem> =
         albums.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) || it.artist.contains(query.trim(), ignoreCase = true) }
 
-    private fun filterTracks(tracks: List<AudioTrack>, query: String): List<AudioTrack> {
+    private fun filterTracks(tracks: List<AudioTrack>, query: String, sortOrder: String, hideShortTracks: Boolean): List<AudioTrack> {
         val needle = query.trim()
-        if (needle.isEmpty()) return tracks
-        return tracks.filter { track ->
-            track.title.contains(needle, ignoreCase = true) ||
-                track.artist.contains(needle, ignoreCase = true) ||
-                track.album.contains(needle, ignoreCase = true)
+        val filtered = tracks.filter { track ->
+            (!hideShortTracks || track.durationMs >= 30_000L) &&
+                (needle.isEmpty() || track.title.contains(needle, ignoreCase = true) ||
+                    track.artist.contains(needle, ignoreCase = true) || track.album.contains(needle, ignoreCase = true))
+        }
+        return when (sortOrder) {
+            "Artist" -> filtered.sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.albumArtist.ifBlank { it.artist } }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            "Date added" -> filtered.sortedWith(compareByDescending<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            "Duration" -> filtered.sortedWith(compareBy<AudioTrack> { it.durationMs }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            else -> filtered.sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.title })
         }
     }
-
     class Factory(
         private val repository: AudioLibraryRepository,
         private val playlistStore: PlaylistStore,
