@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -12,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -111,9 +113,11 @@ fun LibraryScreen(
             Text("Your music", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         }
         if (state.browseTitle == null) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf("Songs", "Artists", "Albums", "Playlists").forEach { tab ->
-                    FilterChip(selected = state.category == tab, onClick = { onCategory(tab) }, label = { Text(tab) })
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                val searchFilters = if (state.searchQuery.isBlank()) listOf("Songs", "Artists", "Albums", "Playlists") else listOf("All", "Songs", "Artists", "Albums", "Playlists")
+                searchFilters.forEach { tab ->
+                    val category = if (tab == "All") "Search" else tab
+                    FilterChip(selected = state.category == category, onClick = { onCategory(category) }, label = { Text(tab) })
                 }
                 if (state.category == "Playlists") {
                     TextButton(onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
@@ -127,11 +131,12 @@ fun LibraryScreen(
                     TextButton(onClick = { selectedUris = emptySet() }) { Text("Clear") }
                 }
             }
-            if (state.category in listOf("Songs", "Artists", "Albums", "Playlists")) {
+            if (state.category in listOf("Songs", "Artists", "Albums", "Playlists", "Search")) {
                 val placeholder = when (state.category) {
                     "Artists" -> "Search artists"
                     "Albums" -> "Search albums or artists"
                     "Playlists" -> "Search playlists"
+                    "Search" -> "Search songs, artists, albums or playlists"
                     else -> "Search songs, artists or albums"
                 }
                 OutlinedTextField(value = state.searchQuery, onValueChange = onSearch, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp), placeholder = { Text(placeholder) }, leadingIcon = { Text("⌕", style = MaterialTheme.typography.headlineSmall) })
@@ -161,20 +166,33 @@ fun LibraryScreen(
                     "Artists" -> state.visibleArtists.isNotEmpty()
                     "Albums" -> state.visibleAlbums.isNotEmpty()
                     "Playlists" -> state.visiblePlaylists.isNotEmpty()
+                    "Search" -> state.visibleTracks.isNotEmpty() || state.visibleArtists.isNotEmpty() || state.visibleAlbums.isNotEmpty() || state.visiblePlaylists.isNotEmpty()
                     else -> songs.isNotEmpty()
                 }
                 if (!hasRows) EmptyPanel(
                     "♫",
-                    if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else "No music found",
+                    if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else if (state.category == "Search") "No search results" else "No music found",
                     if (state.browseTitle != null) "This collection has no available tracks."
                     else if (state.category == "Playlists") "Create your first playlist to keep songs together."
+                    else if (state.category == "Search") "Try a different search or select another filter."
                     else "Add audio files to your phone or SD card, then scan again.",
-                    if (state.browseTitle == null && state.category == "Playlists") "Create" else if (state.browseTitle == null) "Scan again" else null,
+                    if (state.browseTitle == null && state.category == "Playlists") "Create" else if (state.browseTitle == null && state.category != "Search") "Scan again" else null,
                     if (state.browseTitle == null && state.category == "Playlists") ({ tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true })
-                    else if (state.browseTitle == null) onRetry else null,
+                    else if (state.browseTitle == null && state.category != "Search") onRetry else null,
                 )
                 else Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
+                        state.browseTitle == null && state.category == "Search" -> SearchResults(
+                            tracks = state.visibleTracks,
+                            artists = state.visibleArtists,
+                            albums = state.visibleAlbums,
+                            playlists = state.visiblePlaylists,
+                            artworkRepository = artworkRepository,
+                            onPlayTrack = onPlayTrack,
+                            onOpenArtist = onOpenArtist,
+                            onOpenAlbum = onOpenAlbum,
+                            onOpenPlaylist = onOpenPlaylist,
+                        )
                         state.browseTitle != null -> {
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 itemsIndexed(songs, key = { _, track -> track.uri.toString() }) { index, track ->
