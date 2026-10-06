@@ -108,6 +108,7 @@ class LibraryViewModel(
     fun setSearchQuery(query: String) {
         val current = _state.value
         _state.value = current.copy(
+            category = if (query.isBlank() && current.category == "Search") "Songs" else current.category,
             searchQuery = query,
             visibleTracks = filterTracks(current.tracks, query, current.sortOrder, current.hideShortTracks),
             visibleArtists = filterArtists(current.artists, query),
