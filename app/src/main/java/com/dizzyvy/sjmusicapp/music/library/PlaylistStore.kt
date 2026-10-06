@@ -23,6 +23,8 @@ interface PlaylistStore {
     suspend fun setFavorite(uri: Uri, favorite: Boolean)
     suspend fun recordPlay(uri: Uri, playedAtMs: Long)
     suspend fun loadPlayHistory(): Map<String, TrackPlayHistory>
+    suspend fun loadHiddenFolderPaths(): Set<String>
+    suspend fun setFolderHidden(path: String, hidden: Boolean)
 }
 
 class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION), PlaylistStore {
@@ -32,11 +34,13 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         db.execSQL("CREATE INDEX playlist_tracks_order ON playlist_tracks(playlist_id, position)")
         db.execSQL("CREATE TABLE favorites (uri TEXT PRIMARY KEY NOT NULL)")
         db.execSQL("CREATE TABLE track_history (uri TEXT PRIMARY KEY NOT NULL, play_count INTEGER NOT NULL, last_played_ms INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE hidden_folders (path TEXT PRIMARY KEY NOT NULL)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("CREATE TABLE favorites (uri TEXT PRIMARY KEY NOT NULL)")
         if (oldVersion < 3) db.execSQL("CREATE TABLE track_history (uri TEXT PRIMARY KEY NOT NULL, play_count INTEGER NOT NULL, last_played_ms INTEGER NOT NULL)")
+        if (oldVersion < 4) db.execSQL("CREATE TABLE hidden_folders (path TEXT PRIMARY KEY NOT NULL)")
     }
 
     override suspend fun loadPlaylists(): List<DevicePlaylist> = withContext(Dispatchers.IO) {
@@ -151,6 +155,28 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         Unit
     }
 
+    override suspend fun loadHiddenFolderPaths(): Set<String> = withContext(Dispatchers.IO) {
+        readableDatabase.query("hidden_folders", arrayOf("path"), null, null, null, null, "path COLLATE NOCASE ASC").use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+    }
+
+    override suspend fun setFolderHidden(path: String, hidden: Boolean) = withContext(Dispatchers.IO) {
+        val normalized = path.trim().trimEnd('/')
+        require(normalized.isNotEmpty()) { "Folder path cannot be empty." }
+        if (hidden) {
+            writableDatabase.insertWithOnConflict(
+                "hidden_folders",
+                null,
+                ContentValues().apply { put("path", normalized) },
+                SQLiteDatabase.CONFLICT_IGNORE,
+            )
+        } else {
+            writableDatabase.delete("hidden_folders", "path = ?", arrayOf(normalized))
+        }
+        Unit
+    }
+
     override suspend fun recordPlay(uri: Uri, playedAtMs: Long) = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.beginTransaction()
@@ -197,7 +223,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 
     private companion object {
         const val DATABASE_NAME = "sj_music_library.db"
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
         const val LOCAL_VOLUME = "app"
         const val FAVORITES_PLAYLIST_ID = -1L
         const val RECENTLY_ADDED_ID = -2L
