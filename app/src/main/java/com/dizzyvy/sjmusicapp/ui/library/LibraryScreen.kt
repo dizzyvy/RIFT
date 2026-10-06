@@ -192,7 +192,8 @@ fun LibraryScreen(
                     if (state.browseTitle == null && state.category == "Playlists") ({ tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true })
                     else if (state.browseTitle == null && state.category != "Search") onRetry else null,
                 )
-                else Box(Modifier.weight(1f).fillMaxWidth()) {
+                else PullToRefreshBox(isRefreshing = state.isLoading, onRefresh = onRetry, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    Box(Modifier.fillMaxSize()) {
                     when {
                         state.browseTitle == null && state.category == "Search" -> SearchResults(
                             tracks = state.visibleTracks,
@@ -320,6 +321,8 @@ fun LibraryScreen(
                                 }
                             }
                         }
+                    }
+                }
                     }
                 }
                 if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(vertical = 7.dp))
