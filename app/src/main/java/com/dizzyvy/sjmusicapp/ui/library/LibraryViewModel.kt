@@ -95,7 +95,7 @@ class LibraryViewModel(
                 }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 val genres = tracks.filter { it.genre.isNotBlank() && !it.genre.equals("<unknown>", true) }
                     .groupBy { it.genre.trim().lowercase() }.map { (_, items) ->
-                        LibraryCollectionItem(items.first().genre.trim().lowercase(), items.first().genre.trim(), "${items.size} songs", items.size, items.first().uri)
+                        LibraryCollectionItem(items.first().genre.trim().lowercase(), items.first().genre.trim(), "Genre", items.size, items.first().uri)
                     }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 val years = tracks.filter { it.year in 1000..9999 }.groupBy { it.year.toString() }
                     .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
