@@ -59,6 +59,8 @@ fun LibraryScreen(
     onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
     onRenamePlaylist: (DevicePlaylist, String) -> Unit,
     onDeletePlaylist: (DevicePlaylist) -> Unit,
+    onImportM3u: () -> Unit,
+    onExportM3u: (DevicePlaylist) -> Unit,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
     onAddTracksToPlaylist: (DevicePlaylist, List<AudioTrack>) -> Unit,
     onPlayPlaylist: (Boolean) -> Unit,
@@ -102,6 +104,7 @@ fun LibraryScreen(
                 }
                 if (state.category == "Playlists") {
                     TextButton(onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
+                    TextButton(onClick = onImportM3u) { Text("Import") }
                 }
             }
             if (selectedTracks.isNotEmpty()) {
@@ -188,6 +191,7 @@ fun LibraryScreen(
                                     onOpen = { onOpenPlaylist(item) },
                                     onRename = { playlistToRename = item; playlistNameInput = item.name },
                                     onDelete = { playlistToDelete = item },
+                                    onExport = { onExportM3u(item) },
                                 )
                             }
                         }
@@ -285,6 +289,7 @@ private fun PlaylistBrowseRow(
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onExport: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onOpen).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -300,6 +305,7 @@ private fun PlaylistBrowseRow(
                 TextButton(onClick = { menuOpen = true }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("⋮") }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
+                    DropdownMenuItem(text = { Text("Export M3U") }, onClick = { menuOpen = false; onExport() })
                     DropdownMenuItem(text = { Text("Delete") }, onClick = { menuOpen = false; onDelete() })
                 }
             }
