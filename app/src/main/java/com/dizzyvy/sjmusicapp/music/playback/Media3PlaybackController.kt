@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -37,6 +38,8 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     private var mediaController: MediaController? = null
     private var queuedTracks = emptyList<AudioTrack>()
     private var pendingQueue: Pair<List<AudioTrack>, Int>? = null
+    private var sleepTimerJob: Job? = null
+    private var finishCurrentTrackAfterTimer = false
     private val pendingAddedTracks = mutableListOf<AudioTrack>()
     private val pendingPlayNextTracks = mutableListOf<AudioTrack>()
     private var positionJob: Job? = null
@@ -51,6 +54,11 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (finishCurrentTrackAfterTimer) {
+                finishCurrentTrackAfterTimer = false
+                mediaController?.pause()
+                _snapshot.value = _snapshot.value.copy(sleepTimerFinishingTrack = false)
+            }
             _snapshot.value = _snapshot.value.copy(errorMessage = null)
             mediaController?.let { player ->
                 refreshSnapshot(player)
@@ -159,6 +167,9 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         pendingQueue = null
         pendingAddedTracks.clear()
         pendingPlayNextTracks.clear()
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        finishCurrentTrackAfterTimer = false
         mediaController?.clearMediaItems()
         _snapshot.value = EMPTY_SNAPSHOT
     }
@@ -187,6 +198,34 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             } else {
                 pendingPlayNextTracks += tracks
                 _snapshot.value = _snapshot.value.copy(queue = _snapshot.value.queue + tracks)
+            }
+        }
+    }
+
+    override fun setSleepTimer(durationMs: Long?, finishCurrentTrack: Boolean) {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        finishCurrentTrackAfterTimer = false
+        if (durationMs == null || durationMs <= 0L) {
+            _snapshot.value = _snapshot.value.copy(sleepTimerRemainingMs = null, sleepTimerFinishingTrack = false)
+            return
+        }
+
+        val expiresAt = SystemClock.elapsedRealtime() + durationMs
+        sleepTimerJob = scope.launch {
+            while (true) {
+                val remaining = (expiresAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                _snapshot.value = _snapshot.value.copy(sleepTimerRemainingMs = remaining, sleepTimerFinishingTrack = false)
+                if (remaining == 0L) break
+                delay(minOf(1_000L, remaining))
+            }
+            sleepTimerJob = null
+            if (finishCurrentTrack && _snapshot.value.currentTrack != null) {
+                finishCurrentTrackAfterTimer = true
+                _snapshot.value = _snapshot.value.copy(sleepTimerRemainingMs = null, sleepTimerFinishingTrack = true)
+            } else {
+                mediaController?.pause()
+                _snapshot.value = _snapshot.value.copy(sleepTimerRemainingMs = null, sleepTimerFinishingTrack = false, isPlaying = false)
             }
         }
     }
