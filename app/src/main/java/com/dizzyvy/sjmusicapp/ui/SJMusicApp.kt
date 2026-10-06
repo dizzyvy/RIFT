@@ -32,7 +32,7 @@ fun SJMusicApp(
     hasAudioPermission: Boolean,
     onRequestPermission: () -> Unit,
 ) {
-    val factory = remember(repository, playbackController) { LibraryViewModel.Factory(repository, playlistStore, playbackController) }
+    val factory = remember(repository, playlistStore, playbackController) { LibraryViewModel.Factory(repository, playlistStore, playbackController) }
     val libraryViewModel: LibraryViewModel = viewModel(factory = factory)
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
