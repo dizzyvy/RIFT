@@ -29,5 +29,6 @@ interface PlaybackController {
     fun moveQueueItem(fromIndex: Int, toIndex: Int)
     fun removeQueueItem(index: Int)
     fun addQueueItem(track: AudioTrack)
+    fun playNext(tracks: List<AudioTrack>)
     fun clearQueue()
 }
