@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import android.provider.OpenableColumns
+import android.app.Activity
+import android.app.RecoverableSecurityException
+import androidx.activity.result.IntentSenderRequest
 import android.provider.MediaStore
 import android.database.ContentObserver
 import android.os.Handler
@@ -55,6 +58,9 @@ fun SJMusicApp(
             val output = requireNotNull(context.contentResolver.openOutputStream(uri))
             output.bufferedWriter(Charsets.UTF_8).use { it.write(pendingExportText) }
         }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not write the playlist file.") }
+    }
+    val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) runCatching {
@@ -142,6 +148,21 @@ fun SJMusicApp(
                 onPlayPause = playbackController::playPause,
                 onAddToQueue = playbackController::addQueueItem,
                 onPlayNext = playbackController::playNext,
+                onDeleteTrack = { track ->
+                    runCatching {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            val request = MediaStore.createDeleteRequest(context.contentResolver, listOf(track.uri))
+                            deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                        } else {
+                            try {
+                                context.contentResolver.delete(track.uri, null, null)
+                                libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
+                            } catch (recoverable: RecoverableSecurityException) {
+                                deleteLauncher.launch(IntentSenderRequest.Builder(recoverable.userAction.actionIntent.intentSender).build())
+                            }
+                        }
+                    }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not delete this song.") }
+                },
                 onCategory = libraryViewModel::selectCategory,
                 onOpenArtist = libraryViewModel::openArtist,
                 onOpenAlbum = libraryViewModel::openAlbum,
