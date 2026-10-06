@@ -38,6 +38,7 @@ import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
 import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
+import com.dizzyvy.sjmusicapp.music.library.LibraryCollectionItem
 import com.dizzyvy.sjmusicapp.music.library.librarySection
 import com.dizzyvy.sjmusicapp.music.library.artistGroupKeys
 import com.dizzyvy.sjmusicapp.music.library.albumGroupKey
@@ -69,6 +70,7 @@ fun LibraryScreen(
     onCategory: (String) -> Unit,
     onOpenArtist: (ArtistBrowseItem) -> Unit,
     onOpenAlbum: (AlbumBrowseItem) -> Unit,
+    onOpenCollection: (LibraryCollectionItem, String) -> Unit,
     onOpenPlaylist: (DevicePlaylist) -> Unit,
     onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
     onRenamePlaylist: (DevicePlaylist, String) -> Unit,
@@ -114,7 +116,8 @@ fun LibraryScreen(
         }
         if (state.browseTitle == null) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                val searchFilters = if (state.searchQuery.isBlank()) listOf("Songs", "Artists", "Albums", "Playlists") else listOf("All", "Songs", "Artists", "Albums", "Playlists")
+                val libraryFilters = listOf("Songs", "Artists", "Albums", "Playlists", "Folders", "Genres", "Years", "Duplicates")
+                val searchFilters = if (state.searchQuery.isBlank()) libraryFilters else listOf("All") + libraryFilters
                 searchFilters.forEach { tab ->
                     val category = if (tab == "All") "Search" else tab
                     FilterChip(selected = state.category == category, onClick = { onCategory(category) }, label = { Text(tab) })
@@ -131,11 +134,15 @@ fun LibraryScreen(
                     TextButton(onClick = { selectedUris = emptySet() }) { Text("Clear") }
                 }
             }
-            if (state.category in listOf("Songs", "Artists", "Albums", "Playlists", "Search")) {
+            if (state.category in listOf("Songs", "Artists", "Albums", "Playlists", "Folders", "Genres", "Years", "Duplicates", "Search")) {
                 val placeholder = when (state.category) {
                     "Artists" -> "Search artists"
                     "Albums" -> "Search albums or artists"
                     "Playlists" -> "Search playlists"
+                    "Folders" -> "Search folders"
+                    "Genres" -> "Search genres"
+                    "Years" -> "Search years"
+                    "Duplicates" -> "Search duplicate tracks"
                     "Search" -> "Search songs, artists, albums or playlists"
                     else -> "Search songs, artists or albums"
                 }
@@ -166,6 +173,10 @@ fun LibraryScreen(
                     "Artists" -> state.visibleArtists.isNotEmpty()
                     "Albums" -> state.visibleAlbums.isNotEmpty()
                     "Playlists" -> state.visiblePlaylists.isNotEmpty()
+                    "Folders" -> state.visibleFolders.isNotEmpty()
+                    "Genres" -> state.visibleGenres.isNotEmpty()
+                    "Years" -> state.visibleYears.isNotEmpty()
+                    "Duplicates" -> state.visibleDuplicateTracks.isNotEmpty()
                     "Search" -> state.visibleTracks.isNotEmpty() || state.visibleArtists.isNotEmpty() || state.visibleAlbums.isNotEmpty() || state.visiblePlaylists.isNotEmpty()
                     else -> songs.isNotEmpty()
                 }
@@ -231,6 +242,27 @@ fun LibraryScreen(
                                 items(state.visibleArtists, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.name, countLabel(item.trackCount, "song"), artworkRepository, artistInitialFallback = true) { onOpenArtist(item) } }
                             }
                             if (state.searchQuery.isBlank()) AlphaIndexRail(state.visibleArtists.map { it.name }, listState, Modifier.align(Alignment.CenterEnd))
+                        }
+                        state.category in listOf("Folders", "Genres", "Years") -> CollectionList(
+                            items = when (state.category) {
+                                "Folders" -> state.visibleFolders
+                                "Genres" -> state.visibleGenres
+                                else -> state.visibleYears
+                            },
+                            artworkRepository = artworkRepository,
+                            onOpen = { onOpenCollection(it, state.category) },
+                        )
+                        state.category == "Duplicates" -> LazyColumn(contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            item { Text("POSSIBLE DUPLICATES · ${state.visibleDuplicateTracks.size}", Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            items(state.visibleDuplicateTracks, key = { "duplicate:${it.uri}" }) { track ->
+                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onPlayTrack(track) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    AlbumTile(track, artworkRepository, Modifier.size(48.dp))
+                                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                        Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                                        Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
                         }
                         state.category == "Albums" -> Box(Modifier.fillMaxSize()) {
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
@@ -357,6 +389,19 @@ fun LibraryScreen(
             confirmButton = { TextButton(onClick = { onDeletePlaylist(playlist); playlistToDelete = null }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun CollectionList(
+    items: List<LibraryCollectionItem>,
+    artworkRepository: ArtworkRepository,
+    onOpen: (LibraryCollectionItem) -> Unit,
+) {
+    LazyColumn(contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        items(items, key = { it.id }) { item ->
+            BrowseRow(item.artworkUri, item.title, if (item.subtitle == "Year") "${countLabel(item.trackCount, "song")} · ${item.title}" else if (item.subtitle == item.id) countLabel(item.trackCount, "song") else "${item.subtitle} · ${countLabel(item.trackCount, "song")}", artworkRepository) { onOpen(item) }
+        }
     }
 }
 
