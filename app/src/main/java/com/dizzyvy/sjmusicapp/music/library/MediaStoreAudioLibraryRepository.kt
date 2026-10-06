@@ -81,9 +81,12 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.ARTIST_ID,
             MediaStore.Audio.Media.ALBUM_ID,
-        ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST) else emptyArray()
+        ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST, MediaStore.Audio.Media.BITRATE, MediaStore.Audio.Media.SAMPLERATE) else emptyArray()
 
         return try {
             resolver.query(
@@ -101,6 +104,11 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
                 val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val dateAddedColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+                val sizeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
+                val mimeTypeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
+                val dataColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                val bitrateColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.BITRATE) else -1
+                val sampleRateColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.SAMPLERATE) else -1
                 val artistIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST_ID)
                 val albumIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
 
@@ -124,6 +132,11 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 album = cursor.getString(albumColumn).orEmpty(),
                                 durationMs = cursor.getLong(durationColumn),
                                 dateAddedSeconds = if (dateAddedColumn >= 0) cursor.getLong(dateAddedColumn) else 0L,
+                                sizeBytes = if (sizeColumn >= 0) cursor.getLong(sizeColumn) else 0L,
+                                mimeType = if (mimeTypeColumn >= 0) cursor.getString(mimeTypeColumn).orEmpty() else "",
+                                bitrate = if (bitrateColumn >= 0 && !cursor.isNull(bitrateColumn)) cursor.getInt(bitrateColumn) else -1,
+                                sampleRateHz = if (sampleRateColumn >= 0 && !cursor.isNull(sampleRateColumn)) cursor.getInt(sampleRateColumn) else -1,
+                                filePath = if (dataColumn >= 0) cursor.getString(dataColumn).orEmpty() else "",
                                 artistId = if (artistIdColumn >= 0) cursor.getLong(artistIdColumn) else -1L,
                                 albumId = if (albumIdColumn >= 0) cursor.getLong(albumIdColumn) else -1L,
                                 volumeName = collection.pathSegments.firstOrNull() ?: "external",
