@@ -41,6 +41,7 @@ fun NowPlayingScreen(
     playlists: List<DevicePlaylist>,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
     onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
+    onClearQueue: () -> Unit,
 ) {
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
@@ -49,6 +50,7 @@ fun NowPlayingScreen(
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var playlistName by remember { mutableStateOf("") }
+    var tracksToCreate by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(scrollState).padding(horizontal = 22.dp)) {
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
         if (track == null) {
@@ -84,7 +86,11 @@ fun NowPlayingScreen(
         if (playback.errorMessage != null) Text(playback.errorMessage, Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
         if (queueOpen) {
             Spacer(Modifier.height(4.dp))
-            Text("UP NEXT  ·  ${playback.queue.size} TRACKS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("QUEUE · ${playback.queue.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { playlistName = ""; tracksToCreate = playback.queue; showCreatePlaylistDialog = true }) { Text("Save as playlist") }
+                TextButton(onClick = onClearQueue) { Text("Clear") }
+            }
             playback.queue.forEachIndexed { index, queued ->
                 QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = { onRemoveQueueItem(index) }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) })
             }
@@ -94,7 +100,7 @@ fun NowPlayingScreen(
     if (showPlaylistSheet) {
         ModalBottomSheet(onDismissRequest = { showPlaylistSheet = false }) {
             Text("Add ${track.title} to playlist", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
-            TextButton(onClick = { playlistName = ""; showPlaylistSheet = false; showCreatePlaylistDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
+            TextButton(onClick = { playlistName = ""; tracksToCreate = listOf(track); showPlaylistSheet = false; showCreatePlaylistDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
             playlists.filter { it.isLocal }.forEach { playlist ->
                 TextButton(onClick = { onAddTrackToPlaylist(playlist, track); showPlaylistSheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Add to ${playlist.name}") }
             }
@@ -106,7 +112,7 @@ fun NowPlayingScreen(
             onDismissRequest = { showCreatePlaylistDialog = false },
             title = { Text("Create playlist") },
             text = { OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, singleLine = true, label = { Text("Playlist name") }) },
-            confirmButton = { TextButton(enabled = playlistName.isNotBlank(), onClick = { onCreatePlaylist(playlistName.trim(), listOf(track)); showCreatePlaylistDialog = false }) { Text("Create") } },
+            confirmButton = { TextButton(enabled = playlistName.isNotBlank(), onClick = { onCreatePlaylist(playlistName.trim(), tracksToCreate); tracksToCreate = emptyList(); showCreatePlaylistDialog = false }) { Text("Create") } },
             dismissButton = { TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Cancel") } },
         )
     }
