@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,7 +30,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.Dp
 import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
 import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
@@ -52,6 +52,8 @@ fun LibraryScreen(
     onAddToQueue: (AudioTrack) -> Unit,
     onOpenPlayer: () -> Unit,
     onPlayPause: () -> Unit,
+    onPreviousTrack: () -> Unit,
+    onNextTrack: () -> Unit,
     onCategory: (String) -> Unit,
     onOpenArtist: (ArtistBrowseItem) -> Unit,
     onOpenAlbum: (AlbumBrowseItem) -> Unit,
@@ -228,7 +230,7 @@ fun LibraryScreen(
                         }
                     }
                 }
-                if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, Modifier.padding(vertical = 7.dp))
+                if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(vertical = 7.dp))
             }
         }
     }
@@ -357,18 +359,34 @@ private fun TrackRow(
 }
 
 @Composable
-fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository, onClick: () -> Unit, onPlayPause: () -> Unit, modifier: Modifier = Modifier) {
+fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository, onClick: () -> Unit, onPlayPause: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, modifier: Modifier = Modifier) {
     val track = playback.currentTrack ?: return
-    Surface(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)), color = Color(0xFF252A33), shape = RoundedCornerShape(18.dp), tonalElevation = 4.dp) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
-                AlbumTile(track, artworkRepository, Modifier.size(46.dp))
-                Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                    Text(track.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                    Text(displayValue(track.artist, "Unknown artist"), color = Color(0xFFB7BEC8), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+    var horizontalDrag by remember(track.uri) { mutableStateOf(0f) }
+    Surface(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).pointerInput(track.uri) {
+        detectHorizontalDragGestures(
+            onDragEnd = {
+                if (horizontalDrag > 48f) onNext()
+                else if (horizontalDrag < -48f) onPrevious()
+                horizontalDrag = 0f
+            },
+            onHorizontalDrag = { change, amount -> change.consume(); horizontalDrag += amount },
+        )
+    }, color = Color(0xFF252A33), shape = RoundedCornerShape(18.dp), tonalElevation = 4.dp) {
+        Column {
+            Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+                    AlbumTile(track, artworkRepository, Modifier.size(46.dp))
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text(track.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                        Text(displayValue(track.artist, "Unknown artist"), color = Color(0xFFB7BEC8), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    }
                 }
+                TextButton(onClick = onPlayPause) { Text(if (playback.isPlaying) "❚❚" else "▶", color = Color.White) }
             }
-            TextButton(onClick = onPlayPause) { Text(if (playback.isPlaying) "❚❚" else "▶", color = Color.White) }
+            LinearProgressIndicator(
+                progress = { (playback.positionMs.toFloat() / playback.durationMs.coerceAtLeast(1L).toFloat()).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+            )
         }
     }
 }
