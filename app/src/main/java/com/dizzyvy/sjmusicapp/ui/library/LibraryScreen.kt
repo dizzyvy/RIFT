@@ -102,6 +102,13 @@ fun LibraryScreen(
                     TextButton(onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
                 }
             }
+            if (selectedTracks.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("${selectedTracks.size} selected", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                    TextButton(onClick = { pendingTracks = selectedTracks; showAddSheet = true }) { Text("Add to playlist") }
+                    TextButton(onClick = { selectedUris = emptySet() }) { Text("Clear") }
+                }
+            }
             if (state.category in listOf("Songs", "Artists", "Albums")) {
                 val placeholder = when (state.category) {
                     "Artists" -> "Search artists"
@@ -141,7 +148,13 @@ fun LibraryScreen(
                                         track = track,
                                         artworkRepository = artworkRepository,
                                         playing = playback.currentTrack?.uri == track.uri && playback.isPlaying,
-                                        onClick = { onPlayTrack(track) },
+                                        selected = track.uri.toString() in selectedUris,
+                                        selectionMode = selectedUris.isNotEmpty(),
+                                        onLongPress = { selectedUris = selectedUris + track.uri.toString() },
+                                        onClick = {
+                                            if (selectedUris.isNotEmpty()) selectedUris = if (track.uri.toString() in selectedUris) selectedUris - track.uri.toString() else selectedUris + track.uri.toString()
+                                            else onPlayTrack(track)
+                                        },
                                         onAdd = { pendingTracks = listOf(track); showAddSheet = true },
                                         showRemove = state.activePlaylist?.isLocal == true,
                                         onRemove = { onRemoveTrackFromPlaylist(track) },
@@ -180,7 +193,21 @@ fun LibraryScreen(
                             val headerCount = 1
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 item { Text(countLabel(songs.size, "song").uppercase(), Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { pendingTracks = listOf(track); showAddSheet = true }) }
+                                items(songs, key = { it.uri.toString() }) { track ->
+                                    TrackRow(
+                                        track = track,
+                                        artworkRepository = artworkRepository,
+                                        playing = playback.currentTrack?.uri == track.uri && playback.isPlaying,
+                                        selected = track.uri.toString() in selectedUris,
+                                        selectionMode = selectedUris.isNotEmpty(),
+                                        onLongPress = { selectedUris = selectedUris + track.uri.toString() },
+                                        onClick = {
+                                            if (selectedUris.isNotEmpty()) selectedUris = if (track.uri.toString() in selectedUris) selectedUris - track.uri.toString() else selectedUris + track.uri.toString()
+                                            else onPlayTrack(track)
+                                        },
+                                        onAdd = { pendingTracks = listOf(track); showAddSheet = true },
+                                    )
+                                }
                             }
                             if (state.searchQuery.isBlank()) {
                                 Column(Modifier.align(Alignment.CenterEnd).padding(end = 0.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -283,6 +310,9 @@ private fun TrackRow(
     track: AudioTrack,
     artworkRepository: ArtworkRepository,
     playing: Boolean,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onLongPress: () -> Unit = {},
     onClick: () -> Unit,
     onAdd: () -> Unit,
     showRemove: Boolean = false,
@@ -293,8 +323,8 @@ private fun TrackRow(
     canMoveUp: Boolean = false,
     canMoveDown: Boolean = false,
 ) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(onClick = onClick).padding(vertical = 6.dp, horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).combinedClickable(onClick = onClick, onLongClick = onLongPress).padding(vertical = 6.dp, horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(52.dp)) else AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
             Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
