@@ -133,7 +133,8 @@ private fun QueueRow(track: AudioTrack, current: Boolean, canMoveUp: Boolean, ca
             TextButton(onClick = onSelect, modifier = Modifier.weight(1f)) {
                 Column(horizontalAlignment = Alignment.Start) {
                     Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface, fontWeight = if (current) FontWeight.Bold else FontWeight.Medium)
-                    Text(if (current) "NOW PLAYING · ${track.artist.ifBlank { "Unknown artist" }}" else track.artist.ifBlank { "Unknown artist" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val artist = track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"
+                    Text(if (current) "NOW PLAYING · $artist" else artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             TextButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.semantics { contentDescription = "Move ${track.title} earlier in queue" }) { Text("↑") }
