@@ -46,6 +46,7 @@ fun NowPlayingScreen(
     onClearQueue: () -> Unit,
     isFavorite: Boolean,
     onFavorite: (AudioTrack, Boolean) -> Unit,
+    onSetSleepTimer: (Long?, Boolean) -> Unit,
 ) {
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
@@ -55,6 +56,9 @@ fun NowPlayingScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var playlistName by remember { mutableStateOf("") }
     var tracksToCreate by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var sleepTimerMinutes by remember { mutableStateOf(30) }
+    var finishCurrentSong by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(scrollState).padding(horizontal = 22.dp)) {
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
         if (track == null) {
@@ -96,6 +100,13 @@ fun NowPlayingScreen(
                 Text(when (playback.repeatMode) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "REPEAT ALL"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "REPEAT ONE"; else -> "REPEAT OFF" })
             }
         }
+        TextButton(onClick = { showSleepTimerDialog = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(when {
+                playback.sleepTimerFinishingTrack -> "Sleep timer · finishing this song"
+                playback.sleepTimerRemainingMs != null -> "Sleep timer · ${((playback.sleepTimerRemainingMs + 59_999L) / 60_000L)} min"
+                else -> "Sleep timer"
+            })
+        }
         ClickWheel(playing = playback.isPlaying, queueOpen = queueOpen, onMenu = onBack, onPrevious = onPrevious, onTogglePlayback = onPlayPause, onNext = onNext, onSelect = { queueOpen = !queueOpen }, onRotate = { delta ->
             if (queueOpen) scope.launch { scrollState.scrollTo((scrollState.value + (delta * 2400).roundToInt()).coerceIn(0, scrollState.maxValue)) }
             else onSeek((playback.positionMs + (delta * 120_000).roundToInt()).coerceIn(0L, playback.durationMs.coerceAtLeast(0L)))
@@ -124,6 +135,49 @@ fun NowPlayingScreen(
             Spacer(Modifier.height(24.dp))
         }
     }
+    if (showSleepTimerDialog) {
+        AlertDialog(
+            onDismissRequest = { showSleepTimerDialog = false },
+            title = { Text("Sleep timer") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Stop playback after")
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        listOf(5, 10, 15).forEach { minutes ->
+                            FilterChip(selected = sleepTimerMinutes == minutes, onClick = { sleepTimerMinutes = minutes }, label = { Text("$minutes") })
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        listOf(30, 45, 60).forEach { minutes ->
+                            FilterChip(selected = sleepTimerMinutes == minutes, onClick = { sleepTimerMinutes = minutes }, label = { Text("$minutes") })
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = finishCurrentSong, onCheckedChange = { finishCurrentSong = it })
+                        Text("Finish the current song")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onSetSleepTimer(sleepTimerMinutes * 60_000L, finishCurrentSong)
+                    showSleepTimerDialog = false
+                }) { Text("Start timer") }
+            },
+            dismissButton = {
+                Row {
+                    if (playback.sleepTimerRemainingMs != null || playback.sleepTimerFinishingTrack) {
+                        TextButton(onClick = {
+                            onSetSleepTimer(null, false)
+                            showSleepTimerDialog = false
+                        }) { Text("Cancel timer") }
+                    }
+                    TextButton(onClick = { showSleepTimerDialog = false }) { Text("Close") }
+                }
+            },
+        )
+    }
+
     if (showCreatePlaylistDialog) {
         AlertDialog(
             onDismissRequest = { showCreatePlaylistDialog = false },
