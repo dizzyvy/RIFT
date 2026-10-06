@@ -139,6 +139,7 @@ fun SJMusicApp(
                 onOpenPlayer = { showPlayer = true },
                 onPlayPause = playbackController::playPause,
                 onAddToQueue = playbackController::addQueueItem,
+                onPlayNext = playbackController::playNext,
                 onCategory = libraryViewModel::selectCategory,
                 onOpenArtist = libraryViewModel::openArtist,
                 onOpenAlbum = libraryViewModel::openAlbum,
