@@ -78,6 +78,9 @@ fun SJMusicApp(
                 onRenamePlaylist = libraryViewModel::renamePlaylist,
                 onDeletePlaylist = libraryViewModel::deletePlaylist,
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
+                onPlayPlaylist = libraryViewModel::playPlaylist,
+                onRemoveTrackFromPlaylist = libraryViewModel::removeTrackFromPlaylist,
+                onMovePlaylistTrack = libraryViewModel::movePlaylistTrack,
                 onBackFromGroup = libraryViewModel::closeGroup,
             )
         }
