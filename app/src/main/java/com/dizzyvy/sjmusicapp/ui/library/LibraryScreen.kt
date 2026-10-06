@@ -109,7 +109,7 @@ fun LibraryScreen(
                 if (!hasRows) EmptyPanel("♫", if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else "No music found",
                     if (state.category == "Playlists") "Create your first playlist to keep songs together." else if (state.browseTitle == null) "Add audio files to your phone or SD card, then scan again." else "This collection has no available tracks.",
                     if (state.category == "Playlists") "Create" else if (state.browseTitle == null) "Scan again" else null,
-                    if (state.category == "Playlists") { trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true } else if (state.browseTitle == null) onRetry else null)
+                    if (state.category == "Playlists") ({ trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true }) else if (state.browseTitle == null) onRetry else null)
                 else Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         state.browseTitle != null -> {
