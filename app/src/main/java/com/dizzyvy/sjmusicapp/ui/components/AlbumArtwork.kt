@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
@@ -24,18 +25,18 @@ import kotlinx.coroutines.withContext
 import android.net.Uri
 
 @Composable
-fun AlbumArtwork(uri: Uri?, title: String, repository: ArtworkRepository?, modifier: Modifier = Modifier) {
+fun AlbumArtwork(uri: Uri?, title: String, repository: ArtworkRepository?, modifier: Modifier = Modifier, fallbackInitial: Boolean = false) {
     val artwork = produceState<android.graphics.Bitmap?>(null, uri, repository) {
         value = if (uri != null && repository != null) withContext(Dispatchers.IO) { repository.load(uri)?.bitmap } else null
     }.value
-    Box(modifier.clip(RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(if (fallbackInitial) CircleShape else RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
         if (artwork != null) {
             Image(artwork.asImageBitmap(), contentDescription = "$title album artwork", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
             val colors = listOf(Color(0xFFE95865), Color(0xFF438CCD), Color(0xFFFFC833), Color(0xFF50A982), Color(0xFF9B75BC))
             val color = colors[(title.hashCode().toUInt().toLong() % colors.size).toInt()]
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(color, color.copy(alpha = .65f)))), contentAlignment = Alignment.Center) {
-                Text("♫", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                Text(if (fallbackInitial) title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?" else "♫", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
             }
         }
     }
