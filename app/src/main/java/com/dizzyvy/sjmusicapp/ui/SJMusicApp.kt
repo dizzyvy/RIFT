@@ -181,6 +181,7 @@ fun SJMusicApp(
                 onCategory = libraryViewModel::selectCategory,
                 onOpenArtist = libraryViewModel::openArtist,
                 onOpenAlbum = libraryViewModel::openAlbum,
+                onOpenCollection = libraryViewModel::openCollection,
                 onOpenPlaylist = libraryViewModel::openPlaylist,
                 onCreatePlaylist = libraryViewModel::createPlaylist,
                 onRenamePlaylist = libraryViewModel::renamePlaylist,
