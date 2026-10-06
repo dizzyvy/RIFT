@@ -15,6 +15,7 @@ data class PlaybackSnapshot(
     val repeatMode: Int = androidx.media3.common.Player.REPEAT_MODE_OFF,
     val sleepTimerRemainingMs: Long? = null,
     val sleepTimerFinishingTrack: Boolean = false,
+    val playbackSpeed: Float = 1f,
 )
 
 interface PlaybackController {
@@ -33,5 +34,6 @@ interface PlaybackController {
     fun addQueueItem(track: AudioTrack)
     fun playNext(tracks: List<AudioTrack>)
     fun setSleepTimer(durationMs: Long?, finishCurrentTrack: Boolean)
+    fun setPlaybackSpeed(speed: Float)
     fun clearQueue()
 }
