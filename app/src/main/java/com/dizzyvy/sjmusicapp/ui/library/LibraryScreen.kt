@@ -10,7 +10,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,11 +51,22 @@ fun LibraryScreen(
     onOpenArtist: (ArtistBrowseItem) -> Unit,
     onOpenAlbum: (AlbumBrowseItem) -> Unit,
     onOpenPlaylist: (DevicePlaylist) -> Unit,
+    onCreatePlaylist: (String, AudioTrack?) -> Unit,
+    onRenamePlaylist: (DevicePlaylist, String) -> Unit,
+    onDeletePlaylist: (DevicePlaylist) -> Unit,
+    onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
     onBackFromGroup: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val isScrolled = listState.firstVisibleItemIndex > 0
+    var pendingTrack by remember { mutableStateOf<AudioTrack?>(null) }
+    var showAddSheet by remember { mutableStateOf(false) }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var trackToAddOnCreate by remember { mutableStateOf<AudioTrack?>(null) }
+    var playlistToRename by remember { mutableStateOf<DevicePlaylist?>(null) }
+    var playlistToDelete by remember { mutableStateOf<DevicePlaylist?>(null) }
+    var playlistNameInput by remember { mutableStateOf("") }
     val songs = state.browseTracks ?: state.visibleTracks
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 18.dp)) {
         if (state.browseTitle != null) {
@@ -66,6 +81,9 @@ fun LibraryScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("Songs", "Artists", "Albums", "Playlists").forEach { tab ->
                     FilterChip(selected = state.category == tab, onClick = { onCategory(tab) }, label = { Text(tab) })
+                }
+                if (state.category == "Playlists") {
+                    TextButton(onClick = { trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
                 }
             }
             if (state.category in listOf("Songs", "Artists", "Albums")) {
@@ -91,12 +109,12 @@ fun LibraryScreen(
                 if (!hasRows) EmptyPanel("♫", if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else "No music found",
                     if (state.category == "Playlists") "Create your first playlist to keep songs together." else if (state.browseTitle == null) "Add audio files to your phone or SD card, then scan again." else "This collection has no available tracks.",
                     if (state.category == "Playlists") "Create" else if (state.browseTitle == null) "Scan again" else null,
-                    if (state.category == "Playlists") null else if (state.browseTitle == null) onRetry else null)
+                    if (state.category == "Playlists") { trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true } else if (state.browseTitle == null) onRetry else null)
                 else Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         state.browseTitle != null -> {
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { onAddToQueue(track) }) }
+                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { pendingTrack = track; showAddSheet = true }) }
                             }
                         }
                         state.category == "Artists" -> Box(Modifier.fillMaxSize()) {
@@ -111,7 +129,16 @@ fun LibraryScreen(
                             }
                             if (state.searchQuery.isBlank()) AlphaIndexRail(state.visibleAlbums.map { it.title }, listState, Modifier.align(Alignment.CenterEnd))
                         }
-                        state.category == "Playlists" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.playlists, key = { "${it.volumeName}:${it.id}" }) { item -> BrowseRow(null, item.name, "On this device", artworkRepository) { onOpenPlaylist(item) } } }
+                        state.category == "Playlists" -> LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
+                            items(state.playlists, key = { "${it.volumeName}:${it.id}" }) { item ->
+                                PlaylistBrowseRow(
+                                    playlist = item,
+                                    onOpen = { onOpenPlaylist(item) },
+                                    onRename = { playlistToRename = item; playlistNameInput = item.name },
+                                    onDelete = { playlistToDelete = item },
+                                )
+                            }
+                        }
                         else -> {
                             val headerCount = 1
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -132,6 +159,83 @@ fun LibraryScreen(
                     }
                 }
                 if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, Modifier.padding(vertical = 7.dp))
+            }
+        }
+    }
+    if (showAddSheet) {
+        ModalBottomSheet(onDismissRequest = { showAddSheet = false }) {
+            Text("Add ${pendingTrack?.title.orEmpty()}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
+            TextButton(onClick = { pendingTrack?.let(onAddToQueue); showAddSheet = false; pendingTrack = null }, modifier = Modifier.fillMaxWidth()) { Text("Add to queue") }
+            TextButton(onClick = { trackToAddOnCreate = pendingTrack; playlistNameInput = ""; showAddSheet = false; showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
+            state.playlists.filter { it.isLocal }.forEach { playlist ->
+                TextButton(onClick = {
+                    pendingTrack?.let { onAddTrackToPlaylist(playlist, it) }
+                    showAddSheet = false
+                    pendingTrack = null
+                }, modifier = Modifier.fillMaxWidth()) { Text("Add to ${playlist.name}") }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false; trackToAddOnCreate = null },
+            title = { Text("Create playlist") },
+            text = { OutlinedTextField(value = playlistNameInput, onValueChange = { playlistNameInput = it }, singleLine = true, label = { Text("Playlist name") }) },
+            confirmButton = {
+                TextButton(enabled = playlistNameInput.isNotBlank(), onClick = {
+                    onCreatePlaylist(playlistNameInput.trim(), trackToAddOnCreate)
+                    showCreateDialog = false
+                    trackToAddOnCreate = null
+                    pendingTrack = null
+                }) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { showCreateDialog = false; trackToAddOnCreate = null }) { Text("Cancel") } },
+        )
+    }
+    playlistToRename?.let { playlist ->
+        AlertDialog(
+            onDismissRequest = { playlistToRename = null },
+            title = { Text("Rename playlist") },
+            text = { OutlinedTextField(value = playlistNameInput, onValueChange = { playlistNameInput = it }, singleLine = true, label = { Text("Playlist name") }) },
+            confirmButton = { TextButton(enabled = playlistNameInput.isNotBlank(), onClick = { onRenamePlaylist(playlist, playlistNameInput.trim()); playlistToRename = null }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { playlistToRename = null }) { Text("Cancel") } },
+        )
+    }
+    playlistToDelete?.let { playlist ->
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = { Text("Delete playlist?") },
+            text = { Text("Delete ${playlist.name}? Songs on your device will not be deleted.") },
+            confirmButton = { TextButton(onClick = { onDeletePlaylist(playlist); playlistToDelete = null }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun PlaylistBrowseRow(
+    playlist: DevicePlaylist,
+    onOpen: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onOpen).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
+            Text(playlist.name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge)
+        }
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(playlist.name, fontWeight = FontWeight.SemiBold)
+            Text(if (playlist.isLocal) "Playlist" else "On this device", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (playlist.isLocal) {
+            Box {
+                TextButton(onClick = { menuOpen = true }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("⋮") }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
+                    DropdownMenuItem(text = { Text("Delete") }, onClick = { menuOpen = false; onDelete() })
+                }
             }
         }
     }
