@@ -118,6 +118,8 @@ fun SJMusicApp(
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
                 onCreatePlaylist = { name, tracks -> libraryViewModel.createPlaylist(name, tracks) },
                 onClearQueue = playbackController::clearQueue,
+                isFavorite = playback.currentTrack?.uri?.toString() in libraryState.favoriteUris,
+                onFavorite = libraryViewModel::setFavorite,
             )
         } else {
             LibraryScreen(
@@ -125,6 +127,7 @@ fun SJMusicApp(
                 playback = playback,
                 artworkRepository = artworkRepository,
                 onSearch = libraryViewModel::setSearchQuery,
+                onFavorite = libraryViewModel::setFavorite,
                 onSortOrder = libraryViewModel::setSortOrder,
                 onHideShortTracks = libraryViewModel::setHideShortTracks,
                 onRequestPermission = onRequestPermission,
