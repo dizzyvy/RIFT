@@ -7,6 +7,8 @@ import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
 import com.dizzyvy.sjmusicapp.music.library.PlaylistStore
 import com.dizzyvy.sjmusicapp.music.library.M3uPlaylistFormat
 import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
+import com.dizzyvy.sjmusicapp.music.library.LibraryCollectionItem
+import com.dizzyvy.sjmusicapp.music.library.normalizeArtistName
 import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
 import com.dizzyvy.sjmusicapp.music.library.librarySection
@@ -43,6 +45,14 @@ data class LibraryUiState(
     val sortOrder: String = "Title",
     val hideShortTracks: Boolean = false,
     val favoriteUris: Set<String> = emptySet(),
+    val folders: List<LibraryCollectionItem> = emptyList(),
+    val visibleFolders: List<LibraryCollectionItem> = emptyList(),
+    val genres: List<LibraryCollectionItem> = emptyList(),
+    val visibleGenres: List<LibraryCollectionItem> = emptyList(),
+    val years: List<LibraryCollectionItem> = emptyList(),
+    val visibleYears: List<LibraryCollectionItem> = emptyList(),
+    val duplicateTracks: List<AudioTrack> = emptyList(),
+    val visibleDuplicateTracks: List<AudioTrack> = emptyList(),
 )
 
 class LibraryViewModel(
@@ -78,15 +88,39 @@ class LibraryViewModel(
                         AlbumBrowseItem(id, title, artist, items.size, first.uri)
                     }
                     .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                val folders = tracks.mapNotNull { track ->
+                    track.filePath.substringBeforeLast('/', "").takeIf(String::isNotBlank)?.let { it to track }
+                }.groupBy({ it.first }, { it.second }).map { (path, items) ->
+                    LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri)
+                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                val genres = tracks.filter { it.genre.isNotBlank() && !it.genre.equals("<unknown>", true) }
+                    .groupBy { it.genre.trim().lowercase() }.map { (_, items) ->
+                        LibraryCollectionItem(items.first().genre.trim().lowercase(), items.first().genre.trim(), "${items.size} songs", items.size, items.first().uri)
+                    }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                val years = tracks.filter { it.year in 1000..9999 }.groupBy { it.year.toString() }
+                    .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
+                    .sortedByDescending { it.title.toIntOrNull() ?: 0 }
+                val duplicateTracks = tracks.groupBy { track ->
+                    "${track.title.trim().lowercase()}|${normalizeArtistName(artistNamesForTrack(track).first())}|${track.durationMs / 1000L}"
+                }.filterValues { it.size > 1 }.values.flatten().distinctBy { it.uri }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 _state.value = _state.value.copy(
                     tracks = tracks,
                     visibleTracks = filterTracks(tracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
+                    visibleDuplicateTracks = filterTracks(duplicateTracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
                     artists = artists,
                     visibleArtists = filterArtists(artists, _state.value.searchQuery),
                     albums = albums,
                     visibleAlbums = filterAlbums(albums, _state.value.searchQuery),
                     playlists = playlists,
                     favoriteUris = favoriteUris,
+                    folders = folders,
+                    visibleFolders = filterCollections(folders, _state.value.searchQuery),
+                    genres = genres,
+                    visibleGenres = filterCollections(genres, _state.value.searchQuery),
+                    years = years,
+                    visibleYears = filterCollections(years, _state.value.searchQuery),
+                    duplicateTracks = duplicateTracks,
+                    visibleDuplicateTracks = filterTracks(duplicateTracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
                     visiblePlaylists = filterPlaylists(playlists, _state.value.searchQuery),
                     isLoading = false,
                     permissionRequired = false,
@@ -114,7 +148,22 @@ class LibraryViewModel(
             visibleArtists = filterArtists(current.artists, query),
             visibleAlbums = filterAlbums(current.albums, query),
             visiblePlaylists = filterPlaylists(current.playlists, query),
+            visibleFolders = filterCollections(current.folders, query),
+            visibleGenres = filterCollections(current.genres, query),
+            visibleYears = filterCollections(current.years, query),
+            visibleDuplicateTracks = filterTracks(current.duplicateTracks, query, current.sortOrder, current.hideShortTracks),
         )
+    }
+
+    fun openCollection(item: LibraryCollectionItem, kind: String) {
+        openGroup(item.title) { track ->
+            when (kind) {
+                "Folders" -> track.filePath.substringBeforeLast('/', "") == item.id
+                "Genres" -> track.genre.equals(item.title, ignoreCase = true)
+                "Years" -> track.year.toString() == item.id
+                else -> false
+            }
+        }
     }
 
     fun setSortOrder(order: String) {
@@ -303,6 +352,9 @@ class LibraryViewModel(
         val tracks = _state.value.tracks.filter(predicate)
         _state.value = _state.value.copy(browseTitle = title, browseTracks = tracks)
     }
+
+    private fun filterCollections(items: List<LibraryCollectionItem>, query: String): List<LibraryCollectionItem> =
+        items.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) || it.subtitle.contains(query.trim(), ignoreCase = true) }
 
     private fun filterPlaylists(playlists: List<DevicePlaylist>, query: String): List<DevicePlaylist> =
         playlists.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
