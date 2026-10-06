@@ -694,8 +694,8 @@ private fun BrowseRow(
         else Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
             Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge)
         }
-        Column(Modifier.padding(start = 12.dp)) {
-            Text(title, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         trailingContent?.invoke()
