@@ -2,6 +2,7 @@ package com.dizzyvy.sjmusicapp.ui.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -130,7 +131,24 @@ fun NowPlayingScreen(
                 TextButton(onClick = onClearQueue) { Text("Clear") }
             }
             playback.queue.forEachIndexed { index, queued ->
-                QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = { onRemoveQueueItem(index) }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) })
+                QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = { onRemoveQueueItem(index) }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) }, dragModifier = Modifier.pointerInput(index, playback.queue.size) {
+                    var accumulatedY = 0f
+                    detectDragGesturesAfterLongPress(
+                        onDragEnd = { accumulatedY = 0f },
+                        onDragCancel = { accumulatedY = 0f },
+                        onDrag = { change, amount ->
+                            change.consume()
+                            accumulatedY += amount.y
+                            if (accumulatedY > 52f && index < playback.queue.lastIndex) {
+                                onMoveQueueItem(index, index + 1)
+                                accumulatedY = 0f
+                            } else if (accumulatedY < -52f && index > 0) {
+                                onMoveQueueItem(index, index - 1)
+                                accumulatedY = 0f
+                            }
+                        },
+                    )
+                })
             }
         }
         Spacer(Modifier.height(20.dp))
