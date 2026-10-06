@@ -87,6 +87,8 @@ fun SJMusicApp(
                 playback = playback,
                 artworkRepository = artworkRepository,
                 onSearch = libraryViewModel::setSearchQuery,
+                onSortOrder = libraryViewModel::setSortOrder,
+                onHideShortTracks = libraryViewModel::setHideShortTracks,
                 onRequestPermission = onRequestPermission,
                 onRetry = { libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true) },
                 onPlayTrack = { track ->
