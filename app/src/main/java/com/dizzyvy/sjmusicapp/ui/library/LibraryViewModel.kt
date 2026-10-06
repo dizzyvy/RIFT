@@ -150,6 +150,10 @@ class LibraryViewModel(
         }
     }
 
+    fun reportActionError(message: String) {
+        _state.value = _state.value.copy(actionMessage = message)
+    }
+
     fun importM3u(name: String, contents: String) {
         val tracksByUri = _state.value.tracks.associateBy { it.uri.toString() }
         val tracksByFileName = _state.value.tracks
