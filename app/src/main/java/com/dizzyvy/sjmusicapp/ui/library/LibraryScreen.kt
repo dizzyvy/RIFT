@@ -180,7 +180,7 @@ fun LibraryScreen(
                             val headerCount = 1
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 item { Text(countLabel(songs.size, "song").uppercase(), Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { pendingTrack = track; showAddSheet = true }) }
+                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { pendingTracks = listOf(track); showAddSheet = true }) }
                             }
                             if (state.searchQuery.isBlank()) {
                                 Column(Modifier.align(Alignment.CenterEnd).padding(end = 0.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -203,7 +203,7 @@ fun LibraryScreen(
         ModalBottomSheet(onDismissRequest = { showAddSheet = false }) {
             Text(if (pendingTracks.size == 1) "Add ${pendingTracks.first().title}" else "Add ${pendingTracks.size} songs", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
             TextButton(onClick = { pendingTracks.forEach(onAddToQueue); showAddSheet = false; pendingTracks = emptyList(); selectedUris = emptySet() }, modifier = Modifier.fillMaxWidth()) { Text("Add to queue") }
-            TextButton(onClick = { trackToAddOnCreate = pendingTrack; playlistNameInput = ""; showAddSheet = false; showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
+            TextButton(onClick = { tracksToAddOnCreate = pendingTracks; playlistNameInput = ""; showAddSheet = false; showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
             state.playlists.filter { it.isLocal }.forEach { playlist ->
                 TextButton(onClick = {
                     onAddTracksToPlaylist(playlist, pendingTracks)
@@ -216,18 +216,18 @@ fun LibraryScreen(
     }
     if (showCreateDialog) {
         AlertDialog(
-            onDismissRequest = { showCreateDialog = false; trackToAddOnCreate = null },
+            onDismissRequest = { showCreateDialog = false; tracksToAddOnCreate = null },
             title = { Text("Create playlist") },
             text = { OutlinedTextField(value = playlistNameInput, onValueChange = { playlistNameInput = it }, singleLine = true, label = { Text("Playlist name") }) },
             confirmButton = {
                 TextButton(enabled = playlistNameInput.isNotBlank(), onClick = {
-                    onCreatePlaylist(playlistNameInput.trim(), trackToAddOnCreate)
+                    onCreatePlaylist(playlistNameInput.trim(), tracksToAddOnCreate)
                     showCreateDialog = false
-                    trackToAddOnCreate = null
-                    pendingTrack = null
+                    tracksToAddOnCreate = null
+                    pendingTracks = null
                 }) { Text("Create") }
             },
-            dismissButton = { TextButton(onClick = { showCreateDialog = false; trackToAddOnCreate = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showCreateDialog = false; tracksToAddOnCreate = null }) { Text("Cancel") } },
         )
     }
     playlistToRename?.let { playlist ->
