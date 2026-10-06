@@ -53,6 +53,7 @@ data class LibraryUiState(
     val actionMessage: String? = null,
     val sortOrder: String = "Title",
     val hideShortTracks: Boolean = false,
+    val hiddenFolderPaths: Set<String> = emptySet(),
     val favoriteUris: Set<String> = emptySet(),
     val playHistory: Map<String, TrackPlayHistory> = emptyMap(),
     val folders: List<LibraryCollectionItem> = emptyList(),
@@ -105,14 +106,16 @@ class LibraryViewModel(
         viewModelScope.launch {
             try {
                 val tracks = repository.loadTracks()
+                val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
+                val availableTracks = tracks.filterNot { folderPath(it) in hiddenFolderPaths }
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
                 val favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                 val playHistory = playlistStore.loadPlayHistory()
-                val artistTracks = tracks.flatMap { track -> artistNamesForTrack(track).map { name -> name to track } }
+                val artistTracks = availableTracks.flatMap { track -> artistNamesForTrack(track).map { name -> name to track } }
                 val artists = artistTracks.groupBy { (name, _) -> name.trim().replace(Regex("\\s+"), "").lowercase() }
                     .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size, entries.first().second.uri) }
                     .sortedWith(compareBy<ArtistBrowseItem> { if (librarySection(it.name) == '#') 0 else 1 }.thenBy { librarySection(it.name) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
-                val albums = tracks.groupBy(::albumGroupKey)
+                val albums = availableTracks.groupBy(::albumGroupKey)
                     .map { (id, items) ->
                         val first = items.first()
                         val title = first.album.takeUnless { it.isBlank() || it.equals("<unknown>", true) } ?: "Unknown album"
@@ -125,19 +128,19 @@ class LibraryViewModel(
                 }.groupBy({ it.first }, { it.second }).map { (path, items) ->
                     LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri)
                 }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-                val genres = tracks.filter { it.genre.isNotBlank() && !it.genre.equals("<unknown>", true) }
+                val genres = availableTracks.filter { it.genre.isNotBlank() && !it.genre.equals("<unknown>", true) }
                     .groupBy { it.genre.trim().lowercase() }.map { (_, items) ->
                         LibraryCollectionItem(items.first().genre.trim().lowercase(), items.first().genre.trim(), "Genre", items.size, items.first().uri)
                     }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-                val years = tracks.filter { it.year in 1000..9999 }.groupBy { it.year.toString() }
+                val years = availableTracks.filter { it.year in 1000..9999 }.groupBy { it.year.toString() }
                     .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
                     .sortedByDescending { it.title.toIntOrNull() ?: 0 }
-                val duplicateTracks = tracks.groupBy { track ->
+                val duplicateTracks = availableTracks.groupBy { track ->
                     "${track.title.trim().lowercase()}|${normalizeArtistName(artistNamesForTrack(track).first())}|${track.durationMs / 1000L}"
                 }.filterValues { it.size > 1 }.values.flatten().distinctBy { it.uri }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 _state.value = _state.value.copy(
                     tracks = tracks,
-                    visibleTracks = filterTracks(tracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
+                    visibleTracks = filterTracks(availableTracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
                     artists = artists,
                     visibleArtists = filterArtists(artists, _state.value.searchQuery),
                     albums = albums,
@@ -146,6 +149,7 @@ class LibraryViewModel(
                     favoriteUris = favoriteUris,
                     playHistory = playHistory,
                     folders = folders,
+                    hiddenFolderPaths = hiddenFolderPaths,
                     visibleFolders = filterCollections(folders, _state.value.searchQuery),
                     genres = genres,
                     visibleGenres = filterCollections(genres, _state.value.searchQuery),
@@ -176,7 +180,7 @@ class LibraryViewModel(
         _state.value = current.copy(
             category = if (query.isBlank() && current.category == "Search") "Songs" else current.category,
             searchQuery = query,
-            visibleTracks = filterTracks(current.tracks, query, current.sortOrder, current.hideShortTracks),
+            visibleTracks = filterTracks(availableTracks(current), query, current.sortOrder, current.hideShortTracks),
             visibleArtists = filterArtists(current.artists, query),
             visibleAlbums = filterAlbums(current.albums, query),
             visiblePlaylists = filterPlaylists(current.playlists, query),
@@ -198,14 +202,25 @@ class LibraryViewModel(
         }
     }
 
+    fun setFolderHidden(path: String, hidden: Boolean) {
+        viewModelScope.launch {
+            runCatching { playlistStore.setFolderHidden(path, hidden) }
+                .onSuccess { loadLibrary(hasAudioPermission = !_state.value.permissionRequired, forceRefresh = true) }
+                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update hidden folders.") }
+        }
+    }
+
+    private fun availableTracks(state: LibraryUiState): List<AudioTrack> =
+        state.tracks.filterNot { folderPath(it) in state.hiddenFolderPaths }
+
     fun setSortOrder(order: String) {
         val current = _state.value
-        _state.value = current.copy(sortOrder = order, visibleTracks = filterTracks(current.tracks, current.searchQuery, order, current.hideShortTracks))
+        _state.value = current.copy(sortOrder = order, visibleTracks = filterTracks(availableTracks(current), current.searchQuery, order, current.hideShortTracks))
     }
 
     fun setHideShortTracks(hide: Boolean) {
         val current = _state.value
-        _state.value = current.copy(hideShortTracks = hide, visibleTracks = filterTracks(current.tracks, current.searchQuery, current.sortOrder, hide))
+        _state.value = current.copy(hideShortTracks = hide, visibleTracks = filterTracks(availableTracks(current), current.searchQuery, current.sortOrder, hide))
     }
 
     fun setFavorite(track: AudioTrack, favorite: Boolean) {
