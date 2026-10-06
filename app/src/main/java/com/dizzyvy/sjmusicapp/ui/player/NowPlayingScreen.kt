@@ -47,6 +47,7 @@ fun NowPlayingScreen(
     isFavorite: Boolean,
     onFavorite: (AudioTrack, Boolean) -> Unit,
     onSetSleepTimer: (Long?, Boolean) -> Unit,
+    onPlaybackSpeed: (Float) -> Unit,
 ) {
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
@@ -59,6 +60,7 @@ fun NowPlayingScreen(
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var sleepTimerMinutes by remember { mutableStateOf(30) }
     var finishCurrentSong by remember { mutableStateOf(false) }
+    var speedMenuOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(scrollState).padding(horizontal = 22.dp)) {
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
         if (track == null) {
@@ -98,6 +100,14 @@ fun NowPlayingScreen(
             TextButton(onClick = { onShuffle(!playback.shuffleEnabled) }) { Text(if (playback.shuffleEnabled) "🔀 ON" else "🔀") }
             TextButton(onClick = { onRepeat(if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) androidx.media3.common.Player.REPEAT_MODE_ALL else if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF) }) {
                 Text(when (playback.repeatMode) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "REPEAT ALL"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "REPEAT ONE"; else -> "REPEAT OFF" })
+            }
+            Box {
+                TextButton(onClick = { speedMenuOpen = true }) { Text("${playback.playbackSpeed}×") }
+                DropdownMenu(expanded = speedMenuOpen, onDismissRequest = { speedMenuOpen = false }) {
+                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { speed ->
+                        DropdownMenuItem(text = { Text("${speed}×") }, onClick = { onPlaybackSpeed(speed); speedMenuOpen = false })
+                    }
+                }
             }
         }
         TextButton(onClick = { showSleepTimerDialog = true }, modifier = Modifier.fillMaxWidth()) {
