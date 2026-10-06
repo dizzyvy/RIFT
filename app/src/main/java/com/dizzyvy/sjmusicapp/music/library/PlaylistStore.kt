@@ -17,6 +17,8 @@ interface PlaylistStore {
     suspend fun addTrack(playlistId: Long, uri: Uri)
     suspend fun removeTrack(playlistId: Long, uri: Uri)
     suspend fun reorderTrack(playlistId: Long, fromIndex: Int, toIndex: Int)
+    suspend fun loadFavoriteUris(): List<Uri>
+    suspend fun setFavorite(uri: Uri, favorite: Boolean)
 }
 
 class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION), PlaylistStore {
@@ -24,16 +26,20 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         db.execSQL("CREATE TABLE playlists (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE)")
         db.execSQL("CREATE TABLE playlist_tracks (playlist_id INTEGER NOT NULL REFERENCES playlists(_id) ON DELETE CASCADE, uri TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (playlist_id, uri))")
         db.execSQL("CREATE INDEX playlist_tracks_order ON playlist_tracks(playlist_id, position)")
+        db.execSQL("CREATE TABLE favorites (uri TEXT PRIMARY KEY NOT NULL)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL("CREATE TABLE favorites (uri TEXT PRIMARY KEY NOT NULL)")
+    }
 
     override suspend fun loadPlaylists(): List<DevicePlaylist> = withContext(Dispatchers.IO) {
-        readableDatabase.query("playlists", arrayOf("_id", "name"), null, null, null, null, "name COLLATE NOCASE ASC").use { cursor ->
+        val saved = readableDatabase.query("playlists", arrayOf("_id", "name"), null, null, null, null, "name COLLATE NOCASE ASC").use { cursor ->
             buildList {
                 while (cursor.moveToNext()) add(DevicePlaylist(cursor.getLong(0), LOCAL_VOLUME, cursor.getString(1), isLocal = true))
             }
         }
+        listOf(DevicePlaylist(FAVORITES_PLAYLIST_ID, LOCAL_VOLUME, "Favorites", isLocal = true, isAuto = true)) + saved
     }
 
     override suspend fun createPlaylist(name: String): DevicePlaylist = withContext(Dispatchers.IO) {
@@ -44,6 +50,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     override suspend fun renamePlaylist(id: Long, name: String) = withContext(Dispatchers.IO) {
+        require(id != FAVORITES_PLAYLIST_ID) { "Automatic playlists cannot be renamed." }
         val normalized = name.trim()
         require(normalized.isNotEmpty()) { "Playlist name cannot be empty." }
         val values = ContentValues().apply { put("name", normalized) }
@@ -51,17 +58,23 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     override suspend fun deletePlaylist(id: Long): Unit = withContext(Dispatchers.IO) {
+        require(id != FAVORITES_PLAYLIST_ID) { "Automatic playlists cannot be deleted." }
         writableDatabase.delete("playlists", "_id = ?", arrayOf(id.toString()))
         writableDatabase.delete("playlist_tracks", "playlist_id = ?", arrayOf(id.toString()))
     }
 
     override suspend fun loadTrackUris(playlistId: Long): List<Uri> = withContext(Dispatchers.IO) {
+        if (playlistId == FAVORITES_PLAYLIST_ID) return@withContext loadFavoriteUris()
         readableDatabase.query("playlist_tracks", arrayOf("uri"), "playlist_id = ?", arrayOf(playlistId.toString()), null, null, "position ASC").use { cursor ->
             buildList { while (cursor.moveToNext()) add(Uri.parse(cursor.getString(0))) }
         }
     }
 
     override suspend fun addTrack(playlistId: Long, uri: Uri) = withContext(Dispatchers.IO) {
+        if (playlistId == FAVORITES_PLAYLIST_ID) {
+            writableDatabase.insertWithOnConflict("favorites", null, ContentValues().apply { put("uri", uri.toString()) }, SQLiteDatabase.CONFLICT_IGNORE)
+            return@withContext Unit
+        }
         val db = writableDatabase
         checkPlaylistExists(db, playlistId)
         val position = db.compileStatement("SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?").run {
@@ -78,11 +91,16 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 
     override suspend fun removeTrack(playlistId: Long, uri: Uri) = withContext(Dispatchers.IO) {
         val db = writableDatabase
+        if (playlistId == FAVORITES_PLAYLIST_ID) {
+            db.delete("favorites", "uri = ?", arrayOf(uri.toString()))
+            return@withContext Unit
+        }
         db.delete("playlist_tracks", "playlist_id = ? AND uri = ?", arrayOf(playlistId.toString(), uri.toString()))
         normalizePositions(db, playlistId)
     }
 
     override suspend fun reorderTrack(playlistId: Long, fromIndex: Int, toIndex: Int) = withContext(Dispatchers.IO) {
+        if (playlistId == FAVORITES_PLAYLIST_ID) return@withContext
         val db = writableDatabase
         val uris = readableDatabase.query("playlist_tracks", arrayOf("uri"), "playlist_id = ?", arrayOf(playlistId.toString()), null, null, "position ASC").use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
@@ -99,6 +117,21 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         } finally {
             db.endTransaction()
         }
+    }
+
+    override suspend fun loadFavoriteUris(): List<Uri> = withContext(Dispatchers.IO) {
+        readableDatabase.query("favorites", arrayOf("uri"), null, null, null, null, "uri ASC").use { cursor ->
+            buildList { while (cursor.moveToNext()) add(Uri.parse(cursor.getString(0))) }
+        }
+    }
+
+    override suspend fun setFavorite(uri: Uri, favorite: Boolean) = withContext(Dispatchers.IO) {
+        if (favorite) {
+            writableDatabase.insertWithOnConflict("favorites", null, ContentValues().apply { put("uri", uri.toString()) }, SQLiteDatabase.CONFLICT_IGNORE)
+        } else {
+            writableDatabase.delete("favorites", "uri = ?", arrayOf(uri.toString()))
+        }
+        Unit
     }
 
     private fun checkPlaylistExists(db: SQLiteDatabase, id: Long) {
@@ -118,7 +151,8 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 
     private companion object {
         const val DATABASE_NAME = "sj_music_library.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
         const val LOCAL_VOLUME = "app"
+        const val FAVORITES_PLAYLIST_ID = -1L
     }
 }
