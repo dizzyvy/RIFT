@@ -57,6 +57,7 @@ fun SJMusicApp(
                 playlists = libraryState.playlists,
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
                 onCreatePlaylist = { name, tracks -> libraryViewModel.createPlaylist(name, tracks) },
+                onClearQueue = playbackController::clearQueue,
             )
         } else {
             LibraryScreen(
