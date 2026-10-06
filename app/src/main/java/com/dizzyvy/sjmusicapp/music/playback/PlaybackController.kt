@@ -31,6 +31,7 @@ interface PlaybackController {
     fun setRepeatMode(mode: Int)
     fun moveQueueItem(fromIndex: Int, toIndex: Int)
     fun removeQueueItem(index: Int)
+    fun restoreQueueItem(track: AudioTrack, index: Int)
     fun addQueueItem(track: AudioTrack)
     fun playNext(tracks: List<AudioTrack>)
     fun setSleepTimer(durationMs: Long?, finishCurrentTrack: Boolean)
