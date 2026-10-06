@@ -580,8 +580,8 @@ private fun TrackRow(
                 detectDragGesturesAfterLongPress(onDragEnd = { dragDistance = 0f }, onDragCancel = { dragDistance = 0f }) { change, dragAmount ->
                     change.consume()
                     dragDistance += dragAmount.y
-                    if (dragDistance > 48f && canMoveDown) { onMoveDown(); dragDistance = 0f }
-                    if (dragDistance < -48f && canMoveUp) { onMoveUp(); dragDistance = 0f }
+                    if (dragDistance > 48.dp.toPx() && canMoveDown) { onMoveDown(); dragDistance = 0f }
+                    if (dragDistance < -48.dp.toPx() && canMoveUp) { onMoveUp(); dragDistance = 0f }
                 }
             }.padding(horizontal = 6.dp))
             TextButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↑") }
