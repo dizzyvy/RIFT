@@ -87,7 +87,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.ARTIST_ID,
             MediaStore.Audio.Media.ALBUM_ID,
-        ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST, MediaStore.Audio.Media.BITRATE, MediaStore.Audio.Media.SAMPLERATE, MediaStore.Audio.Media.GENRE) else emptyArray()
+        ) + (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST, MediaStore.Audio.Media.BITRATE, MediaStore.Audio.Media.SAMPLERATE, MediaStore.Audio.Media.GENRE) else emptyArray()) + (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) arrayOf(MediaStore.Audio.Media.RELATIVE_PATH) else emptyArray())
 
         return try {
             resolver.query(
@@ -109,6 +109,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val sizeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
                 val mimeTypeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
                 val dataColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH) else -1
                 val bitrateColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.BITRATE) else -1
                 val sampleRateColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.SAMPLERATE) else -1
                 val genreColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.GENRE) else -1
@@ -140,6 +141,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 bitrate = if (bitrateColumn >= 0 && !cursor.isNull(bitrateColumn)) cursor.getInt(bitrateColumn) else -1,
                                 sampleRateHz = if (sampleRateColumn >= 0 && !cursor.isNull(sampleRateColumn)) cursor.getInt(sampleRateColumn) else -1,
                                 filePath = if (dataColumn >= 0) cursor.getString(dataColumn).orEmpty() else "",
+                                relativePath = if (relativePathColumn >= 0) cursor.getString(relativePathColumn).orEmpty() else "",
                                 genre = if (genreColumn >= 0) cursor.getString(genreColumn).orEmpty() else "",
                                 year = if (yearColumn >= 0 && !cursor.isNull(yearColumn)) cursor.getInt(yearColumn) else 0,
                                 artistId = if (artistIdColumn >= 0) cursor.getLong(artistIdColumn) else -1L,
