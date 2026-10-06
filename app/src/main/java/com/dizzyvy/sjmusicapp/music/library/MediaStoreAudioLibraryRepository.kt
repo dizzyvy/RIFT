@@ -80,6 +80,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.ARTIST_ID,
             MediaStore.Audio.Media.ALBUM_ID,
         ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST) else emptyArray()
@@ -99,6 +100,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val albumArtistColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ARTIST) else -1
                 val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
                 val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val dateAddedColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
                 val artistIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST_ID)
                 val albumIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
 
@@ -121,6 +123,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 albumArtist = if (albumArtistColumn >= 0) cursor.getString(albumArtistColumn).orEmpty() else "",
                                 album = cursor.getString(albumColumn).orEmpty(),
                                 durationMs = cursor.getLong(durationColumn),
+                                dateAddedSeconds = if (dateAddedColumn >= 0) cursor.getLong(dateAddedColumn) else 0L,
                                 artistId = if (artistIdColumn >= 0) cursor.getLong(artistIdColumn) else -1L,
                                 albumId = if (albumIdColumn >= 0) cursor.getLong(albumIdColumn) else -1L,
                                 volumeName = collection.pathSegments.firstOrNull() ?: "external",
