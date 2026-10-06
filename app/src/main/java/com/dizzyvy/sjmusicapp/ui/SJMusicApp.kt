@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
+import com.dizzyvy.sjmusicapp.music.library.PlaylistStore
 import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackController
 import com.dizzyvy.sjmusicapp.ui.library.LibraryScreen
@@ -21,12 +22,13 @@ import com.dizzyvy.sjmusicapp.ui.theme.SJMusicTheme
 @Composable
 fun SJMusicApp(
     repository: AudioLibraryRepository,
+    playlistStore: PlaylistStore,
     playbackController: PlaybackController,
     artworkRepository: ArtworkRepository,
     hasAudioPermission: Boolean,
     onRequestPermission: () -> Unit,
 ) {
-    val factory = remember(repository, playbackController) { LibraryViewModel.Factory(repository, playbackController) }
+    val factory = remember(repository, playbackController) { LibraryViewModel.Factory(repository, playlistStore, playbackController) }
     val libraryViewModel: LibraryViewModel = viewModel(factory = factory)
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
