@@ -163,6 +163,23 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     override fun removeQueueItem(index: Int) {
         mediaController?.takeIf { index in 0 until it.mediaItemCount }?.removeMediaItem(index)
     }
+    override fun restoreQueueItem(track: AudioTrack, index: Int) {
+        val controller = mediaController
+        if (controller != null) {
+            controller.addMediaItem(index.coerceIn(0, controller.mediaItemCount), toMediaItem(track))
+            return
+        }
+        val queue = (pendingQueue?.first ?: _snapshot.value.queue).toMutableList()
+        val targetIndex = index.coerceIn(0, queue.size)
+        queue.add(targetIndex, track)
+        val currentIndex = pendingQueue?.second ?: _snapshot.value.currentIndex
+        val restoredCurrentIndex = if (_snapshot.value.currentTrack != null && targetIndex <= currentIndex) currentIndex + 1 else currentIndex
+        pendingQueue = queue to restoredCurrentIndex.coerceIn(0, queue.lastIndex)
+        pendingAddedTracks.clear()
+        pendingPlayNextTracks.clear()
+        _snapshot.value = _snapshot.value.copy(queue = queue)
+    }
+
     override fun clearQueue() {
         queuedTracks = emptyList()
         pendingQueue = null
