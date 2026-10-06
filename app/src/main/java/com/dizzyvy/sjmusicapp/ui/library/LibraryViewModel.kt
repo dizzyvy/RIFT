@@ -24,6 +24,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+private fun folderPath(track: AudioTrack): String = track.relativePath.trimEnd('/').ifBlank {
+    track.filePath.substringBeforeLast('/', "")
+}
+
 data class LibraryUiState(
     val tracks: List<AudioTrack> = emptyList(),
     val visibleTracks: List<AudioTrack> = emptyList(),
@@ -89,7 +93,7 @@ class LibraryViewModel(
                     }
                     .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 val folders = tracks.mapNotNull { track ->
-                    track.filePath.substringBeforeLast('/', "").takeIf(String::isNotBlank)?.let { it to track }
+                    folderPath(track).takeIf(String::isNotBlank)?.let { it to track }
                 }.groupBy({ it.first }, { it.second }).map { (path, items) ->
                     LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri)
                 }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
@@ -157,7 +161,7 @@ class LibraryViewModel(
     fun openCollection(item: LibraryCollectionItem, kind: String) {
         openGroup(item.title) { track ->
             when (kind) {
-                "Folders" -> track.filePath.substringBeforeLast('/', "") == item.id
+                "Folders" -> folderPath(track) == item.id
                 "Genres" -> track.genre.equals(item.title, ignoreCase = true)
                 "Years" -> track.year.toString() == item.id
                 else -> false
