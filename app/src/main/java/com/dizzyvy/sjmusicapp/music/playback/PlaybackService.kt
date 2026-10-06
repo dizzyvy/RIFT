@@ -124,7 +124,7 @@ class PlaybackService : MediaSessionService() {
     private fun readSavedQueue(prefs: android.content.SharedPreferences): List<MediaItem> {
         val result = mutableListOf<MediaItem>()
         runCatching {
-            val queue = JSONArray(prefs.getString(KEY_QUEUE, "[]"))
+            val queue = JSONArray(prefs.getString(KEY_QUEUE, "[]") ?: "[]")
             for (index in 0 until queue.length()) {
                 val entry = queue.optJSONObject(index) ?: continue
                 val uriString = entry.optString("uri").takeIf(String::isNotBlank) ?: continue
