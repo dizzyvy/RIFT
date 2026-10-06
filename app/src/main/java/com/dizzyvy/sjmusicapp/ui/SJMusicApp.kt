@@ -82,7 +82,7 @@ fun SJMusicApp(
                 }
             }
             val audioUris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaStore.getExternalVolumeNames(context).map(MediaStore.Audio.Media::getContentUri)
+                MediaStore.getExternalVolumeNames(context).map { volume -> MediaStore.Audio.Media.getContentUri(volume) }
             } else {
                 listOf(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
             }
