@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
 import com.dizzyvy.sjmusicapp.music.library.PlaylistStore
+import com.dizzyvy.sjmusicapp.music.library.TrackPlayHistory
 import com.dizzyvy.sjmusicapp.music.library.M3uPlaylistFormat
 import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.LibraryCollectionItem
@@ -22,6 +23,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private fun folderPath(track: AudioTrack): String = track.relativePath.trimEnd('/').ifBlank {
@@ -49,6 +53,7 @@ data class LibraryUiState(
     val sortOrder: String = "Title",
     val hideShortTracks: Boolean = false,
     val favoriteUris: Set<String> = emptySet(),
+    val playHistory: Map<String, TrackPlayHistory> = emptyMap(),
     val folders: List<LibraryCollectionItem> = emptyList(),
     val visibleFolders: List<LibraryCollectionItem> = emptyList(),
     val genres: List<LibraryCollectionItem> = emptyList(),
@@ -67,6 +72,27 @@ class LibraryViewModel(
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            playback.snapshot
+                .map { it.currentTrack }
+                .filterNotNull()
+                .distinctUntilChangedBy { it.uri }
+                .collect { track ->
+                    runCatching {
+                        playlistStore.recordPlay(track.uri, System.currentTimeMillis())
+                        val history = playlistStore.loadPlayHistory()
+                        val current = _state.value
+                        val active = current.activePlaylist
+                        val browseTracks = if (active?.isAuto == true && active.autoKind != "favorites") {
+                            automaticPlaylistTracks(active, current.tracks, history)
+                        } else current.browseTracks
+                        _state.value = current.copy(playHistory = history, browseTracks = browseTracks)
+                    }
+                }
+        }
+    }
+
     fun loadLibrary(hasAudioPermission: Boolean, forceRefresh: Boolean = false) {
         if (!hasAudioPermission) {
             _state.value = _state.value.copy(isLoading = false, permissionRequired = true)
@@ -80,6 +106,7 @@ class LibraryViewModel(
                 val tracks = repository.loadTracks()
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
                 val favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
+                val playHistory = playlistStore.loadPlayHistory()
                 val artistTracks = tracks.flatMap { track -> artistNamesForTrack(track).map { name -> name to track } }
                 val artists = artistTracks.groupBy { (name, _) -> name.trim().replace(Regex("\\s+"), "").lowercase() }
                     .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size, entries.first().second.uri) }
@@ -116,6 +143,7 @@ class LibraryViewModel(
                     visibleAlbums = filterAlbums(albums, _state.value.searchQuery),
                     playlists = playlists,
                     favoriteUris = favoriteUris,
+                    playHistory = playHistory,
                     folders = folders,
                     visibleFolders = filterCollections(folders, _state.value.searchQuery),
                     genres = genres,
