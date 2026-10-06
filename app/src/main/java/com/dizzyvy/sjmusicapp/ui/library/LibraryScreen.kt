@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
 import com.dizzyvy.sjmusicapp.music.library.AlbumBrowseItem
 import com.dizzyvy.sjmusicapp.music.library.ArtistBrowseItem
@@ -50,16 +51,17 @@ fun LibraryScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val isScrolled = listState.firstVisibleItemIndex > 0
     val songs = state.browseTracks ?: state.visibleTracks
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 18.dp)) {
-        if (state.browseTitle != null) TextButton(onClick = onBackFromGroup, modifier = Modifier.padding(top = 2.dp)) { Text("‹  ${state.category.uppercase()}") }
-        else {
+        if (state.browseTitle != null) {
+            TextButton(onClick = onBackFromGroup, modifier = Modifier.padding(top = 2.dp)) { Text("‹  ${state.category.uppercase()}") }
+            Text(state.browseTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+        } else if (!isScrolled) {
             Spacer(Modifier.height(5.dp))
             Text("SJ MUSIC", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             Text("Your music", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text("ON THIS DEVICE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(state.browseTitle ?: "${state.category} on this device", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 5.dp, bottom = 8.dp))
         if (state.browseTitle == null) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("Songs", "Artists", "Albums", "Playlists").forEach { tab ->
@@ -76,26 +78,29 @@ fun LibraryScreen(
             state.message != null -> EmptyPanel("!", "Library unavailable", state.message, "Scan again", onRetry)
             else -> {
                 val hasRows = if (state.browseTitle != null) !state.browseTracks.isNullOrEmpty() else when (state.category) {
-                    "Artists" -> state.artists.isNotEmpty()
-                    "Albums" -> state.albums.isNotEmpty()
+                    "Artists" -> state.visibleArtists.isNotEmpty()
+                    "Albums" -> state.visibleAlbums.isNotEmpty()
                     "Playlists" -> state.playlists.isNotEmpty()
                     else -> songs.isNotEmpty()
                 }
-                if (!hasRows) EmptyPanel("♫", if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists found" else "No music found", "Add audio files to your phone or SD card, then scan again.", if (state.browseTitle == null) "Scan again" else null, if (state.browseTitle == null) onRetry else null)
+                if (!hasRows) EmptyPanel("♫", if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else "No music found",
+                    if (state.category == "Playlists") "Create your first playlist to keep songs together." else if (state.browseTitle == null) "Add audio files to your phone or SD card, then scan again." else "This collection has no available tracks.",
+                    if (state.category == "Playlists") "Create" else if (state.browseTitle == null) "Scan again" else null,
+                    if (state.category == "Playlists") null else if (state.browseTitle == null) onRetry else null)
                 else Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         state.browseTitle != null -> {
-                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 22.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { onAddToQueue(track) }) }
                             }
                         }
-                        state.category == "Artists" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.artists, key = { it.id }) { item -> BrowseRow("◉", item.name, "${item.trackCount} songs") { onOpenArtist(item) } } }
-                        state.category == "Albums" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.albums, key = { it.id }) { item -> BrowseRow("▣", item.title, "${item.artist.ifBlank { "Unknown artist" }} · ${item.trackCount} songs") { onOpenAlbum(item) } } }
-                        state.category == "Playlists" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.playlists, key = { "${it.volumeName}:${it.id}" }) { item -> BrowseRow("♫", item.name, "On this device") { onOpenPlaylist(item) } } }
+                        state.category == "Artists" -> LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) { items(state.visibleArtists, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.name, countLabel(item.trackCount, "song"), artworkRepository) { onOpenArtist(item) } } }
+                        state.category == "Albums" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.visibleAlbums, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.title, "${displayValue(item.artist, "Unknown artist")} · ${countLabel(item.trackCount, "song")}", artworkRepository) { onOpenAlbum(item) } } }
+                        state.category == "Playlists" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.playlists, key = { "${it.volumeName}:${it.id}" }) { item -> BrowseRow(null, item.name, "On this device", artworkRepository) { onOpenPlaylist(item) } } }
                         else -> {
                             val headerCount = 1
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 22.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                item { Text("${songs.size} SONGS", Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                item { Text(countLabel(songs.size, "song").uppercase(), Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { onAddToQueue(track) }) }
                             }
                             if (state.searchQuery.isBlank()) {
@@ -123,10 +128,10 @@ private fun TrackRow(track: AudioTrack, artworkRepository: ArtworkRepository, pl
         AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-            Text(track.artist.ifBlank { "Unknown artist" }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (playing) Text("♫", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp))
-        TextButton(onClick = onAdd, modifier = Modifier.semantics { contentDescription = "Add ${track.title} to queue" }) { Text("+") }
+        TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Add ${track.title} to queue" }) { Text("+") }
     }
 }
 
@@ -139,7 +144,7 @@ fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository,
                 AlbumTile(track, artworkRepository, Modifier.size(46.dp))
                 Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                     Text(track.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                    Text(track.artist.ifBlank { "Unknown artist" }, color = Color(0xFFB7BEC8), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    Text(displayValue(track.artist, "Unknown artist"), color = Color(0xFFB7BEC8), style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 }
             }
             TextButton(onClick = onPlayPause) { Text(if (playback.isPlaying) "❚❚" else "▶", color = Color.White) }
@@ -153,12 +158,23 @@ fun AlbumTile(track: AudioTrack, artworkRepository: ArtworkRepository, modifier:
 }
 
 @Composable
-private fun BrowseRow(icon: String, title: String, subtitle: String, onClick: () -> Unit) {
+private fun BrowseRow(artworkUri: android.net.Uri?, title: String, subtitle: String, artworkRepository: ArtworkRepository, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) { Text(icon, style = MaterialTheme.typography.titleLarge) }
-        Column(Modifier.padding(start = 12.dp)) { Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        if (artworkUri != null) AlbumArtwork(artworkUri, title, artworkRepository, Modifier.size(48.dp))
+        else Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
+            Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge)
+        }
+        Column(Modifier.padding(start = 12.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
+
+private fun countLabel(count: Int, singular: String): String = if (count == 1) "1 $singular" else "$count ${singular}s"
+
+private fun displayValue(value: String, fallback: String): String =
+    value.takeIf { it.isNotBlank() && !it.equals("<unknown>", ignoreCase = true) } ?: fallback
 
 @Composable
 private fun EmptyPanel(icon: String, title: String, subtitle: String, button: String? = null, onClick: (() -> Unit)? = null) {
