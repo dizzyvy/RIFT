@@ -1,7 +1,10 @@
 package com.dizzyvy.sjmusicapp.music.library
 
-data class ArtistBrowseItem(val id: String, val name: String, val trackCount: Int)
-data class AlbumBrowseItem(val id: String, val title: String, val artist: String, val trackCount: Int)
+import android.net.Uri
+import com.dizzyvy.sjmusicapp.music.model.AudioTrack
+
+data class ArtistBrowseItem(val id: String, val name: String, val trackCount: Int, val artworkUri: Uri? = null)
+data class AlbumBrowseItem(val id: String, val title: String, val artist: String, val trackCount: Int, val artworkUri: Uri? = null)
 data class DevicePlaylist(val id: Long, val volumeName: String, val name: String)
 
 fun librarySection(title: String): Char = title.trim().firstOrNull()
@@ -9,8 +12,28 @@ fun librarySection(title: String): Char = title.trim().firstOrNull()
     ?.takeIf { it in 'A'..'Z' }
     ?: '#'
 
-fun artistGroupKey(track: com.dizzyvy.sjmusicapp.music.model.AudioTrack): String =
-    if (track.artistId >= 0) "${track.volumeName}:${track.artistId}" else track.artist.ifBlank { "Unknown artist" }.lowercase()
+private val artistSplitPattern = Regex("""\\s*(?:,|&|\\bfeat\\.?\\b)\\s*""", RegexOption.IGNORE_CASE)
+private val artistWhitespacePattern = Regex("""\\s+""")
 
-fun albumGroupKey(track: com.dizzyvy.sjmusicapp.music.model.AudioTrack): String =
-    if (track.albumId >= 0) "${track.volumeName}:${track.albumId}" else "${track.album.lowercase()}|${track.artist.lowercase()}"
+fun artistNamesForTrack(track: AudioTrack): List<String> {
+    val preferred = track.albumArtist.trim().takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }
+        ?: track.artist
+    return preferred.split(artistSplitPattern)
+        .map { it.trim().replace(artistWhitespacePattern, " ") }
+        .filter { it.isNotBlank() && !it.equals("<unknown>", true) }
+        .distinctBy { normalizeArtistName(it) }
+        .ifEmpty { listOf("Unknown artist") }
+}
+
+fun normalizeArtistName(name: String): String = name.trim().replace(artistWhitespacePattern, "").lowercase()
+
+fun artistGroupKeys(track: AudioTrack): List<String> =
+    artistNamesForTrack(track).map(::normalizeArtistName).distinct()
+
+fun artistGroupKey(track: AudioTrack): String = artistGroupKeys(track).first()
+
+fun albumGroupKey(track: AudioTrack): String {
+    if (track.albumId >= 0) return "${track.volumeName}:${track.albumId}"
+    val albumArtist = track.albumArtist.ifBlank { artistNamesForTrack(track).joinToString(", ") }
+    return "${track.album.trim().lowercase()}|${normalizeArtistName(albumArtist)}"
+}
