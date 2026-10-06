@@ -1,6 +1,7 @@
 package com.dizzyvy.sjmusicapp.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -8,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,7 +64,13 @@ fun NowPlayingScreen(
         }
         Text("NOW PLAYING", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(14.dp))
-        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(280.dp))
+        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(280.dp).pointerInput(track.uri) {
+            var drag = 0f
+            detectHorizontalDragGestures(
+                onDragEnd = { if (drag > 48f) onNext() else if (drag < -48f) onPrevious(); drag = 0f },
+                onHorizontalDrag = { change, amount -> change.consume(); drag += amount },
+            )
+        })
         Spacer(Modifier.height(18.dp))
         Text(track.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         Text("${track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"}  ·  ${track.album.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown album"}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
