@@ -68,8 +68,13 @@ fun LibraryScreen(
                     FilterChip(selected = state.category == tab, onClick = { onCategory(tab) }, label = { Text(tab) })
                 }
             }
-            if (state.category == "Songs") {
-                OutlinedTextField(value = state.searchQuery, onValueChange = onSearch, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp), placeholder = { Text("Search songs or artists") }, leadingIcon = { Text("⌕", style = MaterialTheme.typography.headlineSmall) })
+            if (state.category in listOf("Songs", "Artists", "Albums")) {
+                val placeholder = when (state.category) {
+                    "Artists" -> "Search artists"
+                    "Albums" -> "Search albums or artists"
+                    else -> "Search songs, artists or albums"
+                }
+                OutlinedTextField(value = state.searchQuery, onValueChange = onSearch, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp), placeholder = { Text(placeholder) }, leadingIcon = { Text("⌕", style = MaterialTheme.typography.headlineSmall) })
             }
         }
         when {
@@ -94,12 +99,22 @@ fun LibraryScreen(
                                 items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { onAddToQueue(track) }) }
                             }
                         }
-                        state.category == "Artists" -> LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) { items(state.visibleArtists, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.name, countLabel(item.trackCount, "song"), artworkRepository) { onOpenArtist(item) } } }
-                        state.category == "Albums" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.visibleAlbums, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.title, "${displayValue(item.artist, "Unknown artist")} · ${countLabel(item.trackCount, "song")}", artworkRepository) { onOpenAlbum(item) } } }
+                        state.category == "Artists" -> Box(Modifier.fillMaxSize()) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
+                                items(state.visibleArtists, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.name, countLabel(item.trackCount, "song"), artworkRepository) { onOpenArtist(item) } }
+                            }
+                            if (state.searchQuery.isBlank()) AlphaIndexRail(state.visibleArtists.map { it.name }, listState, Modifier.align(Alignment.CenterEnd))
+                        }
+                        state.category == "Albums" -> Box(Modifier.fillMaxSize()) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
+                                items(state.visibleAlbums, key = { it.id }) { item -> BrowseRow(item.artworkUri, item.title, "${displayValue(item.artist, "Unknown artist")} · ${countLabel(item.trackCount, "song")}", artworkRepository) { onOpenAlbum(item) } }
+                            }
+                            if (state.searchQuery.isBlank()) AlphaIndexRail(state.visibleAlbums.map { it.title }, listState, Modifier.align(Alignment.CenterEnd))
+                        }
                         state.category == "Playlists" -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 12.dp)) { items(state.playlists, key = { "${it.volumeName}:${it.id}" }) { item -> BrowseRow(null, item.name, "On this device", artworkRepository) { onOpenPlaylist(item) } } }
                         else -> {
                             val headerCount = 1
-                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 22.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 item { Text(countLabel(songs.size, "song").uppercase(), Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { onAddToQueue(track) }) }
                             }
@@ -167,6 +182,19 @@ private fun BrowseRow(artworkUri: android.net.Uri?, title: String, subtitle: Str
         Column(Modifier.padding(start = 12.dp)) {
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun AlphaIndexRail(names: List<String>, listState: androidx.compose.foundation.lazy.LazyListState, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        (listOf('#') + ('A'..'Z').toList()).forEach { letter ->
+            Text(letter.toString(), modifier = Modifier.clickable {
+                val target = names.indexOfFirst { librarySection(it) == letter }
+                if (target >= 0) scope.launch { listState.animateScrollToItem(target) }
+            }.padding(horizontal = 4.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
