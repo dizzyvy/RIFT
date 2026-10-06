@@ -1,5 +1,7 @@
 package com.dizzyvy.sjmusicapp.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -8,6 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import android.provider.OpenableColumns
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
@@ -33,6 +37,24 @@ fun SJMusicApp(
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
     var showPlayer by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var pendingExportText by remember { mutableStateOf("") }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
+        if (uri != null) runCatching {
+            val output = requireNotNull(context.contentResolver.openOutputStream(uri))
+            output.bufferedWriter(Charsets.UTF_8).use { it.write(pendingExportText) }
+        }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not write the playlist file.") }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) runCatching {
+            val contents = requireNotNull(context.contentResolver.openInputStream(uri)).bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            } ?: "Imported playlist.m3u"
+            libraryViewModel.importM3u(name, contents)
+        }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not read the playlist file.") }
+    }
+
 
     LaunchedEffect(hasAudioPermission) {
         libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = hasAudioPermission)
@@ -81,6 +103,8 @@ fun SJMusicApp(
                 onCreatePlaylist = libraryViewModel::createPlaylist,
                 onRenamePlaylist = libraryViewModel::renamePlaylist,
                 onDeletePlaylist = libraryViewModel::deletePlaylist,
+                onImportM3u = { importLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain")) },
+                onExportM3u = { playlist -> libraryViewModel.exportM3u(playlist) { contents -> pendingExportText = contents; exportLauncher.launch(playlist.name + ".m3u") } },
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
                 onAddTracksToPlaylist = libraryViewModel::addTracksToPlaylist,
                 onPlayPlaylist = libraryViewModel::playPlaylist,
