@@ -85,6 +85,15 @@ class PlaybackService : MediaSessionService() {
 
     private fun savePlaybackState() {
         val player = mediaSession?.player ?: return
+        if (player.mediaItemCount == 0) {
+            getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
+                .remove(KEY_URI)
+                .remove(KEY_QUEUE)
+                .remove(KEY_INDEX)
+                .remove(KEY_POSITION)
+                .apply()
+            return
+        }
         val item = player.currentMediaItem ?: return
         val uri = item.localConfiguration?.uri ?: return
         val metadata = item.mediaMetadata
