@@ -43,6 +43,10 @@ fun SJMusicApp(
     playbackController: PlaybackController,
     artworkRepository: ArtworkRepository,
     hasAudioPermission: Boolean,
+    themeMode: String,
+    accentName: String,
+    onThemeModeChange: (String) -> Unit,
+    onAccentChange: (String) -> Unit,
     onRequestPermission: () -> Unit,
 ) {
     val factory = remember(repository, playlistStore, playbackController) { LibraryViewModel.Factory(repository, playlistStore, playbackController) }
@@ -111,7 +115,7 @@ fun SJMusicApp(
         libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = hasAudioPermission)
     }
 
-    SJMusicTheme {
+    SJMusicTheme(mode = themeMode, accent = accentName) {
       androidx.compose.foundation.layout.Box(Modifier.safeDrawingPadding()) {
         if (showPlayer) {
             NowPlayingScreen(
@@ -194,6 +198,10 @@ fun SJMusicApp(
                 onRemoveTrackFromPlaylist = libraryViewModel::removeTrackFromPlaylist,
                 onMovePlaylistTrack = libraryViewModel::movePlaylistTrack,
                 onBackFromGroup = libraryViewModel::closeGroup,
+                themeMode = themeMode,
+                accentName = accentName,
+                onThemeModeChange = onThemeModeChange,
+                onAccentChange = onAccentChange,
             )
         }
       }
