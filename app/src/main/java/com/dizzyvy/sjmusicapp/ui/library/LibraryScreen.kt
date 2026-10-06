@@ -112,8 +112,27 @@ fun LibraryScreen(
             }
         } else if (!isScrolled) {
             Spacer(Modifier.height(5.dp))
-            Text("SJ MUSIC", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-            Text("Your music", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("SJ MUSIC", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("Your music", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                }
+                var appearanceMenuOpen by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { appearanceMenuOpen = true }) { Text("Appearance ▾") }
+                    DropdownMenu(expanded = appearanceMenuOpen, onDismissRequest = { appearanceMenuOpen = false }) {
+                        Text("THEME", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        listOf("light" to "Light", "dark" to "Dark", "amoled" to "AMOLED black").forEach { (value, label) ->
+                            DropdownMenuItem(text = { Text(if (themeMode == value) "✓ $label" else label) }, onClick = { onThemeModeChange(value); appearanceMenuOpen = false })
+                        }
+                        HorizontalDivider()
+                        Text("ACCENT", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        listOf("Coral", "Blue", "Green", "Gold").forEach { color ->
+                            DropdownMenuItem(text = { Text(if (accentName.equals(color, true)) "✓ $color" else color) }, onClick = { onAccentChange(color); appearanceMenuOpen = false })
+                        }
+                    }
+                }
+            }
         }
         if (state.browseTitle == null) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
