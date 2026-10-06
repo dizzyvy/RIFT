@@ -120,6 +120,7 @@ fun SJMusicApp(
                 onClearQueue = playbackController::clearQueue,
                 isFavorite = playback.currentTrack?.uri?.toString() in libraryState.favoriteUris,
                 onFavorite = libraryViewModel::setFavorite,
+                onSetSleepTimer = playbackController::setSleepTimer,
             )
         } else {
             LibraryScreen(
