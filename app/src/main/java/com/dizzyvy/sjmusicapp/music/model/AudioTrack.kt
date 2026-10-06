@@ -11,6 +11,7 @@ data class AudioTrack(
     val albumArtist: String = "",
     val album: String,
     val durationMs: Long,
+    val dateAddedSeconds: Long = 0L,
     val artistId: Long = -1L,
     val albumId: Long = -1L,
     val volumeName: String = "external",
