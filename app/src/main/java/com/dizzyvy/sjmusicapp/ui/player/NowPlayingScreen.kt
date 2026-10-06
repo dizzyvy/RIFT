@@ -139,7 +139,7 @@ fun NowPlayingScreen(
         ModalBottomSheet(onDismissRequest = { showPlaylistSheet = false }) {
             Text("Add ${track.title} to playlist", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
             TextButton(onClick = { playlistName = ""; tracksToCreate = listOf(track); showPlaylistSheet = false; showCreatePlaylistDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
-            playlists.filter { it.isLocal }.forEach { playlist ->
+            playlists.filter { it.isLocal && (!it.isAuto || it.autoKind == "favorites") }.forEach { playlist ->
                 TextButton(onClick = { onAddTrackToPlaylist(playlist, track); showPlaylistSheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Add to ${playlist.name}") }
             }
             Spacer(Modifier.height(24.dp))
