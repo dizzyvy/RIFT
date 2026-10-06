@@ -207,7 +207,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             return
         }
         val insertAt = (controller.currentMediaItemIndex + 1).coerceIn(0, controller.mediaItemCount)
-        controller.addMediaItems(insertAt, tracks.map(::toMediaItem))
+        tracks.forEachIndexed { offset, track -> controller.addMediaItem(insertAt + offset, toMediaItem(track)) }
     }
 
     private fun applyQueue(controller: MediaController, tracks: List<AudioTrack>, startIndex: Int) {
