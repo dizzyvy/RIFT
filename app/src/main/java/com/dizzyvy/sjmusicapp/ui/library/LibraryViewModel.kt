@@ -106,7 +106,6 @@ class LibraryViewModel(
                 _state.value = _state.value.copy(
                     tracks = tracks,
                     visibleTracks = filterTracks(tracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
-                    visibleDuplicateTracks = filterTracks(duplicateTracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
                     artists = artists,
                     visibleArtists = filterArtists(artists, _state.value.searchQuery),
                     albums = albums,
