@@ -250,11 +250,11 @@ fun LibraryScreen(
                 TextButton(enabled = playlistNameInput.isNotBlank(), onClick = {
                     onCreatePlaylist(playlistNameInput.trim(), tracksToAddOnCreate)
                     showCreateDialog = false
-                    tracksToAddOnCreate = null
+                    tracksToAddOnCreate = emptyList()
                     pendingTracks = emptyList()
                 }) { Text("Create") }
             },
-            dismissButton = { TextButton(onClick = { showCreateDialog = false; tracksToAddOnCreate = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showCreateDialog = false; tracksToAddOnCreate = emptyList() }) { Text("Cancel") } },
         )
     }
     playlistToRename?.let { playlist ->
