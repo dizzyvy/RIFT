@@ -216,7 +216,11 @@ class LibraryViewModel(
                         if (favorite) add(track.uri.toString()) else remove(track.uri.toString())
                     }
                     val active = current.activePlaylist
-                    val browseTracks = if (active?.isAuto == true) loadLocalTracks(active.id) else current.browseTracks
+                    val browseTracks = when {
+                        active?.autoKind == "favorites" -> loadLocalTracks(active.id)
+                        active?.isAuto == true -> automaticPlaylistTracks(active, current.tracks, current.playHistory)
+                        else -> current.browseTracks
+                    }
                     _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks)
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update favorite.") }
@@ -257,7 +261,7 @@ class LibraryViewModel(
 
     fun openPlaylist(item: DevicePlaylist) {
         viewModelScope.launch {
-            val tracks = if (item.isLocal) loadLocalTracks(item.id) else repository.loadPlaylistTracks(item)
+            val tracks = loadPlaylistTracks(item)
             _state.value = _state.value.copy(browseTitle = item.name, browseTracks = tracks, activePlaylist = item)
         }
     }
@@ -290,7 +294,7 @@ class LibraryViewModel(
     fun exportM3u(playlist: DevicePlaylist, onReady: (String) -> Unit) {
         viewModelScope.launch {
             runCatching {
-                val tracks = if (playlist.isLocal) loadLocalTracks(playlist.id) else repository.loadPlaylistTracks(playlist)
+                val tracks = loadPlaylistTracks(playlist)
                 M3uPlaylistFormat.encode(playlist.name, tracks)
             }.onSuccess(onReady)
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not export playlist.") }
@@ -298,7 +302,7 @@ class LibraryViewModel(
     }
 
     fun renamePlaylist(playlist: DevicePlaylist, name: String) {
-        if (!playlist.isLocal) return
+        if (!playlist.isLocal || playlist.isAuto) return
         viewModelScope.launch {
             runCatching { playlistStore.renamePlaylist(playlist.id, name) }
                 .onSuccess {
@@ -312,7 +316,7 @@ class LibraryViewModel(
     }
 
     fun deletePlaylist(playlist: DevicePlaylist) {
-        if (!playlist.isLocal) return
+        if (!playlist.isLocal || playlist.isAuto) return
         viewModelScope.launch {
             runCatching { playlistStore.deletePlaylist(playlist.id) }
                 .onSuccess {
@@ -324,13 +328,13 @@ class LibraryViewModel(
     }
 
     fun addTracksToPlaylist(playlist: DevicePlaylist, tracks: List<AudioTrack>) {
-        if (!playlist.isLocal) return
+        if (!playlist.isLocal || (playlist.isAuto && playlist.autoKind != "favorites")) return
         viewModelScope.launch {
             runCatching { tracks.forEach { playlistStore.addTrack(playlist.id, it.uri) } }
                 .onSuccess {
                     val current = _state.value
-                    val favorites = if (playlist.isAuto) current.favoriteUris + tracks.map { it.uri.toString() } else current.favoriteUris
-                    val browseTracks = if (current.activePlaylist?.id == playlist.id) loadLocalTracks(playlist.id) else current.browseTracks
+                    val favorites = if (playlist.autoKind == "favorites") current.favoriteUris + tracks.map { it.uri.toString() } else current.favoriteUris
+                    val browseTracks = if (current.activePlaylist?.id == playlist.id) loadPlaylistTracks(playlist) else current.browseTracks
                     _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks, actionMessage = null)
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not add songs to playlist.") }
@@ -338,12 +342,12 @@ class LibraryViewModel(
     }
 
     fun addTrackToPlaylist(playlist: DevicePlaylist, track: AudioTrack) {
-        if (!playlist.isLocal) return
+        if (!playlist.isLocal || (playlist.isAuto && playlist.autoKind != "favorites")) return
         viewModelScope.launch {
             runCatching { playlistStore.addTrack(playlist.id, track.uri) }
                 .onSuccess {
                     val current = _state.value
-                    val favorites = if (playlist.isAuto) current.favoriteUris + track.uri.toString() else current.favoriteUris
+                    val favorites = if (playlist.autoKind == "favorites") current.favoriteUris + track.uri.toString() else current.favoriteUris
                     val browseTracks = if (current.activePlaylist?.id == playlist.id) loadLocalTracks(playlist.id) else current.browseTracks
                     _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks, actionMessage = null)
                 }
@@ -353,7 +357,7 @@ class LibraryViewModel(
 
     fun removeTrackFromPlaylist(track: AudioTrack) {
         val playlist = _state.value.activePlaylist ?: return
-        if (!playlist.isLocal) return
+        if (!playlist.isLocal || (playlist.isAuto && playlist.autoKind != "favorites")) return
         viewModelScope.launch {
             playlistStore.removeTrack(playlist.id, track.uri)
             _state.value = _state.value.copy(browseTracks = loadLocalTracks(playlist.id))
@@ -367,6 +371,28 @@ class LibraryViewModel(
             playlistStore.reorderTrack(playlist.id, fromIndex, toIndex)
             _state.value = _state.value.copy(browseTracks = loadLocalTracks(playlist.id))
         }
+    }
+
+    private suspend fun loadPlaylistTracks(playlist: DevicePlaylist): List<AudioTrack> = when {
+        playlist.autoKind == "favorites" -> loadLocalTracks(playlist.id)
+        playlist.autoKind != null -> automaticPlaylistTracks(playlist, _state.value.tracks, _state.value.playHistory)
+        playlist.isLocal -> loadLocalTracks(playlist.id)
+        else -> repository.loadPlaylistTracks(playlist)
+    }
+
+    private fun automaticPlaylistTracks(
+        playlist: DevicePlaylist,
+        tracks: List<AudioTrack>,
+        history: Map<String, TrackPlayHistory>,
+    ): List<AudioTrack> = when (playlist.autoKind) {
+        "recently_added" -> tracks.sortedWith(compareByDescending<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        "recently_played" -> tracks.filter { it.uri.toString() in history }
+            .sortedByDescending { history[it.uri.toString()]?.lastPlayedAtMs ?: 0L }
+        "most_played" -> tracks.filter { it.uri.toString() in history }
+            .sortedWith(compareByDescending<AudioTrack> { history[it.uri.toString()]?.playCount ?: 0 }.thenByDescending { history[it.uri.toString()]?.lastPlayedAtMs ?: 0L })
+        "never_played" -> tracks.filter { it.uri.toString() !in history }
+            .sortedWith(compareByDescending<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        else -> emptyList()
     }
 
     private suspend fun loadLocalTracks(playlistId: Long): List<AudioTrack> {
