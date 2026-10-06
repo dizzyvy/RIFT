@@ -3,15 +3,22 @@ package com.dizzyvy.sjmusicapp.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import android.provider.OpenableColumns
+import android.provider.MediaStore
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.os.Build
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
@@ -22,6 +29,9 @@ import com.dizzyvy.sjmusicapp.ui.library.LibraryScreen
 import com.dizzyvy.sjmusicapp.ui.library.LibraryViewModel
 import com.dizzyvy.sjmusicapp.ui.player.NowPlayingScreen
 import com.dizzyvy.sjmusicapp.ui.theme.SJMusicTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SJMusicApp(
@@ -38,6 +48,7 @@ fun SJMusicApp(
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
     var showPlayer by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val refreshScope = rememberCoroutineScope()
     var pendingExportText by remember { mutableStateOf("") }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
         if (uri != null) runCatching {
@@ -55,6 +66,33 @@ fun SJMusicApp(
         }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not read the playlist file.") }
     }
 
+
+    DisposableEffect(hasAudioPermission, context, libraryViewModel) {
+        if (!hasAudioPermission) {
+            onDispose { }
+        } else {
+            var refreshJob: Job? = null
+            val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean, uri: android.net.Uri?) {
+                    refreshJob?.cancel()
+                    refreshJob = refreshScope.launch {
+                        delay(400)
+                        libraryViewModel.loadLibrary(hasAudioPermission = true, forceRefresh = true)
+                    }
+                }
+            }
+            val audioUris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.getExternalVolumeNames(context).map(MediaStore.Audio.Media::getContentUri)
+            } else {
+                listOf(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
+            }
+            audioUris.forEach { context.contentResolver.registerContentObserver(it, true, observer) }
+            onDispose {
+                refreshJob?.cancel()
+                context.contentResolver.unregisterContentObserver(observer)
+            }
+        }
+    }
 
     LaunchedEffect(hasAudioPermission) {
         libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = hasAudioPermission)
