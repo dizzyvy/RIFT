@@ -54,6 +54,9 @@ fun SJMusicApp(
                 onRepeat = playbackController::setRepeatMode,
                 onRemoveQueueItem = playbackController::removeQueueItem,
                 onMoveQueueItem = playbackController::moveQueueItem,
+                playlists = libraryState.playlists,
+                onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
+                onCreatePlaylist = libraryViewModel::createPlaylist,
             )
         } else {
             LibraryScreen(
