@@ -322,7 +322,6 @@ fun LibraryScreen(
                             }
                         }
                     }
-                }
                     }
                 }
                 if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(vertical = 7.dp))
