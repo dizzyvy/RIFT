@@ -35,6 +35,7 @@ data class LibraryUiState(
     val albums: List<AlbumBrowseItem> = emptyList(),
     val visibleAlbums: List<AlbumBrowseItem> = emptyList(),
     val playlists: List<DevicePlaylist> = emptyList(),
+    val visiblePlaylists: List<DevicePlaylist> = emptyList(),
     val browseTitle: String? = null,
     val browseTracks: List<AudioTrack>? = null,
     val activePlaylist: DevicePlaylist? = null,
@@ -81,6 +82,7 @@ class LibraryViewModel(
                     albums = albums,
                     visibleAlbums = filterAlbums(albums, _state.value.searchQuery),
                     playlists = playlists,
+                    visiblePlaylists = filterPlaylists(playlists, _state.value.searchQuery),
                     isLoading = false,
                     permissionRequired = false,
                     message = null,
@@ -105,6 +107,7 @@ class LibraryViewModel(
             visibleTracks = filterTracks(current.tracks, query),
             visibleArtists = filterArtists(current.artists, query),
             visibleAlbums = filterAlbums(current.albums, query),
+            visiblePlaylists = filterPlaylists(current.playlists, query),
         )
     }
 
@@ -256,13 +259,17 @@ class LibraryViewModel(
     }
 
     private suspend fun refreshPlaylists() {
-        _state.value = _state.value.copy(playlists = repository.loadPlaylists() + playlistStore.loadPlaylists())
+        val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
+        _state.value = _state.value.copy(playlists = playlists, visiblePlaylists = filterPlaylists(playlists, _state.value.searchQuery))
     }
 
     private fun openGroup(title: String, predicate: (AudioTrack) -> Boolean) {
         val tracks = _state.value.tracks.filter(predicate)
         _state.value = _state.value.copy(browseTitle = title, browseTracks = tracks)
     }
+
+    private fun filterPlaylists(playlists: List<DevicePlaylist>, query: String): List<DevicePlaylist> =
+        playlists.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
 
     private fun filterArtists(artists: List<ArtistBrowseItem>, query: String): List<ArtistBrowseItem> =
         artists.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
