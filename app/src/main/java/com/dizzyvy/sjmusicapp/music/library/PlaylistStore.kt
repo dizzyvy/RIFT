@@ -50,7 +50,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         check(writableDatabase.update("playlists", values, "_id = ?", arrayOf(id.toString())) == 1) { "Playlist no longer exists." }
     }
 
-    override suspend fun deletePlaylist(id: Long) = withContext(Dispatchers.IO) {
+    override suspend fun deletePlaylist(id: Long): Unit = withContext(Dispatchers.IO) {
         writableDatabase.delete("playlists", "_id = ?", arrayOf(id.toString()))
         writableDatabase.delete("playlist_tracks", "playlist_id = ?", arrayOf(id.toString()))
     }
