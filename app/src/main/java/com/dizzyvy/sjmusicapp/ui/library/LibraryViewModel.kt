@@ -33,6 +33,13 @@ private fun folderPath(track: AudioTrack): String = track.relativePath.trimEnd('
     track.filePath.substringBeforeLast('/', "")
 }
 
+private fun folderIsHidden(track: AudioTrack, hiddenFolderPaths: Set<String>): Boolean {
+    val path = folderPath(track)
+    return hiddenFolderPaths.any { hidden ->
+        path.equals(hidden, ignoreCase = true) || path.startsWith("$hidden/", ignoreCase = true)
+    }
+}
+
 data class LibraryUiState(
     val tracks: List<AudioTrack> = emptyList(),
     val visibleTracks: List<AudioTrack> = emptyList(),
@@ -87,7 +94,7 @@ class LibraryViewModel(
                         val current = _state.value
                         val active = current.activePlaylist
                         val browseTracks = if (active?.isAuto == true && active.autoKind != "favorites") {
-                            automaticPlaylistTracks(active, current.tracks, history)
+                            automaticPlaylistTracks(active, availableTracks(current), history)
                         } else current.browseTracks
                         _state.value = current.copy(playHistory = history, browseTracks = browseTracks)
                     }
@@ -107,7 +114,7 @@ class LibraryViewModel(
             try {
                 val tracks = repository.loadTracks()
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
-                val availableTracks = tracks.filterNot { folderPath(it) in hiddenFolderPaths }
+                val availableTracks = tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
                 val favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                 val playHistory = playlistStore.loadPlayHistory()
@@ -211,7 +218,7 @@ class LibraryViewModel(
     }
 
     private fun availableTracks(state: LibraryUiState): List<AudioTrack> =
-        state.tracks.filterNot { folderPath(it) in state.hiddenFolderPaths }
+        state.tracks.filterNot { folderIsHidden(it, state.hiddenFolderPaths) }
 
     fun setSortOrder(order: String) {
         val current = _state.value
@@ -234,7 +241,7 @@ class LibraryViewModel(
                     val active = current.activePlaylist
                     val browseTracks = when {
                         active?.autoKind == "favorites" -> loadLocalTracks(active.id)
-                        active?.isAuto == true -> automaticPlaylistTracks(active, current.tracks, current.playHistory)
+                        active?.isAuto == true -> automaticPlaylistTracks(active, availableTracks(current), current.playHistory)
                         else -> current.browseTracks
                     }
                     _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks)
@@ -391,7 +398,7 @@ class LibraryViewModel(
 
     private suspend fun loadPlaylistTracks(playlist: DevicePlaylist): List<AudioTrack> = when {
         playlist.autoKind == "favorites" -> loadLocalTracks(playlist.id)
-        playlist.autoKind != null -> automaticPlaylistTracks(playlist, _state.value.tracks, _state.value.playHistory)
+        playlist.autoKind != null -> automaticPlaylistTracks(playlist, availableTracks(_state.value), _state.value.playHistory)
         playlist.isLocal -> loadLocalTracks(playlist.id)
         else -> repository.loadPlaylistTracks(playlist)
     }
