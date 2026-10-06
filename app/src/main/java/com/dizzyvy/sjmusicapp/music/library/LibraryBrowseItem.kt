@@ -6,7 +6,7 @@ import com.dizzyvy.sjmusicapp.music.model.AudioTrack
 data class ArtistBrowseItem(val id: String, val name: String, val trackCount: Int, val artworkUri: Uri? = null)
 data class AlbumBrowseItem(val id: String, val title: String, val artist: String, val trackCount: Int, val artworkUri: Uri? = null)
 data class LibraryCollectionItem(val id: String, val title: String, val subtitle: String, val trackCount: Int, val artworkUri: Uri? = null)
-data class DevicePlaylist(val id: Long, val volumeName: String, val name: String, val isLocal: Boolean = false, val isAuto: Boolean = false)
+data class DevicePlaylist(val id: Long, val volumeName: String, val name: String, val isLocal: Boolean = false, val isAuto: Boolean = false, val autoKind: String? = null)
 
 fun librarySection(title: String): Char = title.trim().firstOrNull()
     ?.uppercaseChar()
