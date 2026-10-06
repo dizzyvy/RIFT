@@ -132,9 +132,11 @@ class LibraryViewModel(
         }
     }
 
-    fun createPlaylist(name: String) {
+    fun createPlaylist(name: String, trackToAdd: AudioTrack? = null) {
         viewModelScope.launch {
-            runCatching { playlistStore.createPlaylist(name) }
+            runCatching {
+                playlistStore.createPlaylist(name).also { playlist -> trackToAdd?.let { playlistStore.addTrack(playlist.id, it.uri) } }
+            }
                 .onSuccess { refreshPlaylists() }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not create playlist.") }
         }
