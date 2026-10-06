@@ -12,7 +12,7 @@ fun librarySection(title: String): Char = title.trim().firstOrNull()
     ?.takeIf { it in 'A'..'Z' }
     ?: '#'
 
-private val artistSplitPattern = Regex("""\s*(?:,|&|\bfeat\.?\b)\s*""", RegexOption.IGNORE_CASE)
+private val artistSplitPattern = Regex("""\s*(?:,|&|\bfeat\.?)\s*""", RegexOption.IGNORE_CASE)
 private val artistWhitespacePattern = Regex("""\s+""")
 
 fun artistNamesForTrack(track: AudioTrack): List<String> {
