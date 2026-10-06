@@ -116,10 +116,16 @@ fun LibraryScreen(
                     "Playlists" -> state.playlists.isNotEmpty()
                     else -> songs.isNotEmpty()
                 }
-                if (!hasRows) EmptyPanel("♫", if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else "No music found",
-                    if (state.category == "Playlists") "Create your first playlist to keep songs together." else if (state.browseTitle == null) "Add audio files to your phone or SD card, then scan again." else "This collection has no available tracks.",
-                    if (state.category == "Playlists") "Create" else if (state.browseTitle == null) "Scan again" else null,
-                    if (state.category == "Playlists") ({ trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true }) else if (state.browseTitle == null) onRetry else null)
+                if (!hasRows) EmptyPanel(
+                    "♫",
+                    if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else "No music found",
+                    if (state.browseTitle != null) "This collection has no available tracks."
+                    else if (state.category == "Playlists") "Create your first playlist to keep songs together."
+                    else "Add audio files to your phone or SD card, then scan again.",
+                    if (state.browseTitle == null && state.category == "Playlists") "Create" else if (state.browseTitle == null) "Scan again" else null,
+                    if (state.browseTitle == null && state.category == "Playlists") ({ trackToAddOnCreate = null; playlistNameInput = ""; showCreateDialog = true })
+                    else if (state.browseTitle == null) onRetry else null,
+                )
                 else Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         state.browseTitle != null -> {
@@ -168,7 +174,7 @@ fun LibraryScreen(
                             val headerCount = 1
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 item { Text(countLabel(songs.size, "song").uppercase(), Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { onAddToQueue(track) }) }
+                                items(songs, key = { it.uri.toString() }) { track -> TrackRow(track, artworkRepository, playback.currentTrack?.uri == track.uri && playback.isPlaying, { onPlayTrack(track) }, { pendingTrack = track; showAddSheet = true }) }
                             }
                             if (state.searchQuery.isBlank()) {
                                 Column(Modifier.align(Alignment.CenterEnd).padding(end = 0.dp), horizontalAlignment = Alignment.CenterHorizontally) {
