@@ -361,6 +361,57 @@ fun LibraryScreen(
 }
 
 @Composable
+private fun SearchResults(
+    tracks: List<AudioTrack>,
+    artists: List<ArtistBrowseItem>,
+    albums: List<AlbumBrowseItem>,
+    playlists: List<DevicePlaylist>,
+    artworkRepository: ArtworkRepository,
+    onPlayTrack: (AudioTrack) -> Unit,
+    onOpenArtist: (ArtistBrowseItem) -> Unit,
+    onOpenAlbum: (AlbumBrowseItem) -> Unit,
+    onOpenPlaylist: (DevicePlaylist) -> Unit,
+) {
+    LazyColumn(contentPadding = PaddingValues(end = 8.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        if (tracks.isNotEmpty()) {
+            item { Text("SONGS · ${tracks.size}", Modifier.padding(start = 5.dp, top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(tracks, key = { "search-song:${it.uri}" }) { track ->
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onPlayTrack(track) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AlbumTile(track, artworkRepository, Modifier.size(48.dp))
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                        Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        if (artists.isNotEmpty()) {
+            item { Text("ARTISTS · ${artists.size}", Modifier.padding(start = 5.dp, top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(artists, key = { "search-artist:${it.id}" }) { item ->
+                BrowseRow(item.artworkUri, item.name, countLabel(item.trackCount, "song"), artworkRepository, artistInitialFallback = true) { onOpenArtist(item) }
+            }
+        }
+        if (albums.isNotEmpty()) {
+            item { Text("ALBUMS · ${albums.size}", Modifier.padding(start = 5.dp, top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(albums, key = { "search-album:${it.id}" }) { item ->
+                BrowseRow(item.artworkUri, item.title, "${displayValue(item.artist, "Unknown artist")} · ${countLabel(item.trackCount, "song")}", artworkRepository) { onOpenAlbum(item) }
+            }
+        }
+        if (playlists.isNotEmpty()) {
+            item { Text("PLAYLISTS · ${playlists.size}", Modifier.padding(start = 5.dp, top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(playlists, key = { "search-playlist:${it.volumeName}:${it.id}" }) { playlist ->
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpenPlaylist(playlist) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
+                        Text(playlist.name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Text(playlist.name, Modifier.padding(start = 12.dp), fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlaylistBrowseRow(
     playlist: DevicePlaylist,
     onOpen: () -> Unit,
