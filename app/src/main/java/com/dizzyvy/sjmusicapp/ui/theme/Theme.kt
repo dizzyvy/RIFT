@@ -1,19 +1,28 @@
 package com.dizzyvy.sjmusicapp.ui.theme
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-private val Palette = lightColorScheme(
-    primary = SJCoral,
+
+private val Palette = darkColorScheme(
+    primary = NanoBlue,
     onPrimary = Color.White,
-    secondary = SJBlue,
+    primaryContainer = Color(0xFF163B5C),
+    onPrimaryContainer = NanoText,
+    secondary = NanoPurple,
     onSecondary = Color.White,
-    tertiary = SJSunshine,
-    background = PaperBackground,
-    surface = Color(0xFFFFFEFB),
-    onSurface = Ink,
-    onSurfaceVariant = Color(0xFF686D76),
+    secondaryContainer = Color(0xFF33205B),
+    onSecondaryContainer = NanoText,
+    tertiary = NanoGreen,
+    onTertiary = Color(0xFF062016),
+    background = NanoBackground,
+    onBackground = NanoText,
+    surface = NanoSurface,
+    onSurface = NanoText,
+    surfaceVariant = NanoSurfaceRaised,
+    onSurfaceVariant = NanoMuted,
+    outline = NanoOutline,
 )
 
 @Composable
