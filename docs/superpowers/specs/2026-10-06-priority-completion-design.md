@@ -1,8 +1,8 @@
-# SJ Music Priority Completion Design
+# RIFT Priority Completion Design
 
 ## Goal
 
-Complete the remaining priority items in the SJ Music roadmap and produce a debug APK, with minimal dependency and build overhead.
+Complete the remaining priority items in the RIFT roadmap and produce a debug APK, with minimal dependency and build overhead.
 
 ## Current state
 

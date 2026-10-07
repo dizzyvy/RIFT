@@ -1,4 +1,4 @@
-# SJ Music Priority Completion Implementation Plan
+# RIFT Priority Completion Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
@@ -32,12 +32,12 @@
 ### Task 1: Persist a launch-ready library cache and scan progress
 
 **Files:**
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/PlaylistStore.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/AudioLibraryRepository.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/MediaStoreAudioLibraryRepository.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/model/AudioTrack.kt` only if cache serialization exposes a missing field
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryViewModel.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryScreen.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/library/PlaylistStore.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/library/AudioLibraryRepository.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/library/MediaStoreAudioLibraryRepository.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/model/AudioTrack.kt` only if cache serialization exposes a missing field
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryViewModel.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryScreen.kt`
 
 **Interfaces:**
 - `LibraryUiState` gains `scanProcessed: Int` and `scanTotal: Int?` (or an equivalent compact progress value).
@@ -53,11 +53,11 @@
 ### Task 2: Add local synchronized/plain-text lyrics
 
 **Files:**
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/lyrics/LocalLyricsRepository.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/MainActivity.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/SJMusicApp.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/player/NowPlayingScreen.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/PlaylistStore.kt` to persist the SAF tree URI
+- Create: `app/src/main/java/com/dizzyvy/rift/music/lyrics/LocalLyricsRepository.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/MainActivity.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/RiftApp.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/player/NowPlayingScreen.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/library/PlaylistStore.kt` to persist the SAF tree URI
 
 **Interfaces:**
 - Lyrics repository loads a result for an `AudioTrack` and selected tree URI, preferring same-folder `.lrc` over `.txt`.
@@ -71,12 +71,12 @@
 ### Task 3: Add versioned playlist, favorite, and settings backup/restore
 
 **Files:**
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/backup/LibraryBackup.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/PlaylistStore.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryViewModel.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryScreen.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/SJMusicApp.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/MainActivity.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/music/backup/LibraryBackup.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/library/PlaylistStore.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryViewModel.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryScreen.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/RiftApp.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/MainActivity.kt`
 
 **Interfaces:**
 - A versioned JSON snapshot contains local playlist names and ordered track metadata, favorite metadata, and persisted settings.
@@ -91,8 +91,8 @@
 ### Task 4: Review playback restore and build the APK
 
 **Files:**
-- Inspect: `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/PlaybackService.kt`
-- Modify only if needed: `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/PlaybackService.kt`
+- Inspect: `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackService.kt`
+- Modify only if needed: `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackService.kt`
 - Modify: `README.md` if the generated APK path or final feature summary changes.
 
 - [ ] Review service creation, checkpoint cadence, empty-queue handling, and playback resumption against the queue recovery requirement; fix only a concrete gap.

@@ -1,8 +1,8 @@
-# SJ Music Remaining Roadmap Design
+# RIFT Remaining Roadmap Design
 
 ## Goal
 
-Integrate the Nano-Chromatic visual direction from PR #4 into the current SJ Music feature branch and complete the still-missing items from the user's original roadmap, producing a buildable debug APK.
+Integrate the Nano-Chromatic visual direction from PR #4 into the current RIFT feature branch and complete the still-missing items from the user's original roadmap, producing a buildable debug APK.
 
 ## Approved direction
 
@@ -55,7 +55,7 @@ Features that require runtime permissions, account credentials, a compatible And
 - Use **RIFT** as the product and repository name, with the transparent Queen artwork as the launcher identity and the Nano-Chromatic palette as its visual foundation.
 - The GitHub repository has been renamed to `dizzyvy/RIFT`; update the local Git remote to match. Rename the local checkout folder to `RIFT` when Windows releases its open-folder handle.
 - Rename the Gradle root project, app label, source namespace, Kotlin packages, app entry composable, theme composable, README, and active implementation documents to RIFT.
-- Keep `applicationId = "com.dizzyvy.sjmusicapp"` stable for installed v0.3.0 builds. Changing it would make Android install RIFT as a different app and stop it inheriting the existing app's local playlist, settings, and queue data. The namespace can change independently when explicitly configured.
+- Keep the existing application ID stable for installed builds. Changing it would make Android install RIFT as a different app and stop it inheriting the existing app's local playlist, settings, and queue data. The namespace can change independently when explicitly configured.
 - Keep the existing SQLite database name and schema migration path; the rebrand must not reset playlists, aliases, favorites, history, or queue state.
 
 The namespace/application ID distinction follows the [Android app module configuration guidance](https://developer.android.com/build/configure-app-module), which recommends keeping the application ID stable after distribution and permits namespace refactoring independently when the ID is explicit.

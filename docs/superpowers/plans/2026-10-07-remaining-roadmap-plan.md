@@ -51,7 +51,7 @@
 
 **Files:**
 - Modify: `settings.gradle.kts`, `README.md`, `app/build.gradle.kts`, `app/src/main/AndroidManifest.xml`, `app/src/main/res/values/strings.xml`
-- Rename source package path from `com/dizzyvy/sjmusicapp/` to `com/dizzyvy/rift/` and update all Kotlin package/import references.
+- Keep the RIFT source package path `com/dizzyvy/rift/` and update Kotlin package/import references as needed.
 - Preserve the stable Android `applicationId` and local database identity so current installs retain update compatibility and app-owned data.
 - Rename the local checkout folder to `RIFT` after Windows releases its current open-folder handle.
 

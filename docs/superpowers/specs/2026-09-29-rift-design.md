@@ -1,4 +1,4 @@
-# SJMusicApp Design
+# RIFT Design
 
 **Date:** 2026-09-29 | **Status:** Design approved in chat; awaiting written review
 
@@ -6,7 +6,7 @@
 
 Build a simple Android music player for Steve's Samsung Galaxy A15 (SM-A156W), running Android 16 with One UI 8.5. The visual direction takes inspiration from the colorful iPod nano generation while using original artwork and interface details. The first version plays music stored on the device; it does not stream music.
 
-The GitHub repository is `dizzyvy/SJMusicApp`. This local workspace is currently empty and is not yet a Git checkout. The repository itself is also empty. The project will be connected to that repository as part of its initial setup so source and Git history stay together.
+The GitHub repository is `dizzyvy/RIFT`. This local workspace is currently empty and is not yet a Git checkout. The repository itself is also empty. The project will be connected to that repository as part of its initial setup so source and Git history stay together.
 
 ## First version
 
@@ -30,7 +30,7 @@ Expected mainstream formats include MP3, AAC in M4A, Ogg Vorbis, Opus, WAV, and 
 - **Permissions:** Request `READ_MEDIA_AUDIO` on Android 13 and newer, and `READ_EXTERNAL_STORAGE` on older Android versions down to the selected minimum SDK.
 - **Android target:** Target Android 16 (API level 36). The audio playback path has a documented Media3 baseline of Android 6.0 (API 23); use API 23 as the initial minimum SDK unless a dependency or implementation constraint discovered during setup requires a higher floor.
 - **State:** Keep the initial library and queue in memory. Persisting playlists, favorites, or playback history is outside this first version.
-- **Repository workflow:** Initialize the local checkout with `dizzyvy/SJMusicApp` as `origin`; keep implementation changes reviewable in Git and publish them through a branch or pull request when ready.
+- **Repository workflow:** Initialize the local checkout with `dizzyvy/RIFT` as `origin`; keep implementation changes reviewable in Git and publish them through a branch or pull request when ready.
 
 Android's MediaStore indexes audio across external storage volumes, which covers built-in shared storage and mounted SD cards. The implementation must query all available volume names so secondary storage is included. Its shared-media guide documents `READ_MEDIA_AUDIO` for access to audio made by other apps. Media3 ExoPlayer supplies the playback and media-session building blocks, while Android's decoder support determines which codec variants work on a given phone.
 

@@ -1,4 +1,4 @@
-# SJMusicApp First Version Implementation Plan
+# RIFT First Version Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,12 +8,12 @@
 
 **Tech Stack:** Kotlin 2.4.20, Android Gradle Plugin 9.1.1, Gradle 9.3.1, JDK 17, Jetpack Compose BOM 2026.09.00, AndroidX Media3 1.11.1, AndroidX Lifecycle 2.11.0.
 
-**Spec:** [`docs/superpowers/specs/2026-09-29-sjmusicapp-design.md`](../specs/2026-09-29-sjmusicapp-design.md)
+**Spec:** [`docs/superpowers/specs/2026-09-29-rift-design.md`](../specs/2026-09-29-rift-design.md)
 
 ## Global Constraints
 
 - Target Android 16 (API level 36) on the Samsung Galaxy A15 (SM-A156W), running One UI 8.5.
-- Use `applicationId` and Kotlin package `com.dizzyvy.sjmusicapp`.
+- Use the RIFT Kotlin package and preserve the installed application ID for upgrade compatibility.
 - Set `minSdk` to 24 because current AndroidX releases default to API 24; the target device runs Android 16.
 - Set `compileSdk` to 37 for the September 2026 Compose BOM, which requires compile SDK 37; keep `targetSdk` at 36.
 - Query all available MediaStore volume names on API 29+, and use the primary external audio collection on older supported versions.
@@ -34,18 +34,18 @@
 - `gradle/wrapper/gradle-wrapper.properties` — Gradle 9.3.1 distribution.
 - `app/build.gradle.kts` — Android app ID, SDK values, Compose, and dependencies.
 - `app/src/main/AndroidManifest.xml` — permissions, launcher activity, and media playback service.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/MainActivity.kt` — app entry, dependency creation, and permission result wiring.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/music/model/AudioTrack.kt` — immutable track metadata model.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/AudioLibraryRepository.kt` — library interface.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/MediaStoreAudioLibraryRepository.kt` — volume-aware MediaStore query.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/PlaybackService.kt` — ExoPlayer and MediaSession lifecycle.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/PlaybackController.kt` — UI-facing playback state and commands.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/Media3PlaybackController.kt` — MediaController connection and command adapter.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/ui/SJMusicApp.kt` — top-level screen selection and shared app state.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryViewModel.kt` — permission-aware loading and search state.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryScreen.kt` — colorful song list, search, and loading/empty/error states.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/ui/nowplaying/NowPlayingScreen.kt` — artwork, metadata, wheel-inspired controls, and queue entry point.
-- `app/src/main/java/com/dizzyvy/sjmusicapp/ui/theme/Color.kt` and `Theme.kt` — original bright iPod-inspired palette and Compose theme.
+- `app/src/main/java/com/dizzyvy/rift/MainActivity.kt` — app entry, dependency creation, and permission result wiring.
+- `app/src/main/java/com/dizzyvy/rift/music/model/AudioTrack.kt` — immutable track metadata model.
+- `app/src/main/java/com/dizzyvy/rift/music/library/AudioLibraryRepository.kt` — library interface.
+- `app/src/main/java/com/dizzyvy/rift/music/library/MediaStoreAudioLibraryRepository.kt` — volume-aware MediaStore query.
+- `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackService.kt` — ExoPlayer and MediaSession lifecycle.
+- `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackController.kt` — UI-facing playback state and commands.
+- `app/src/main/java/com/dizzyvy/rift/music/playback/Media3PlaybackController.kt` — MediaController connection and command adapter.
+- `app/src/main/java/com/dizzyvy/rift/ui/RiftApp.kt` — top-level screen selection and shared app state.
+- `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryViewModel.kt` — permission-aware loading and search state.
+- `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryScreen.kt` — colorful song list, search, and loading/empty/error states.
+- `app/src/main/java/com/dizzyvy/rift/ui/nowplaying/NowPlayingScreen.kt` — artwork, metadata, wheel-inspired controls, and queue entry point.
+- `app/src/main/java/com/dizzyvy/rift/ui/theme/Color.kt` and `Theme.kt` — original bright iPod-inspired palette and Compose theme.
 - `app/src/main/res/values/strings.xml` — user-facing permission rationale and playback messages.
 - `README.md` — project purpose, build prerequisites, and local APK build command.
 
@@ -72,23 +72,23 @@
 - Create: `gradle.properties`
 - Create: `app/build.gradle.kts`
 - Create: `app/src/main/AndroidManifest.xml`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/MainActivity.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/MainActivity.kt`
 - Create: `README.md`
 
-**Interfaces:** Produces installable app ID `com.dizzyvy.sjmusicapp` and a Compose `MainActivity` that opens `SJMusicApp`.
+**Interfaces:** Produces the RIFT app with a Compose `MainActivity` that opens `RiftApp`.
 
 - [ ] **Step 1: Add the pinned Gradle and Android plugin setup.** Use AGP 9.1.1, Gradle 9.3.1, JDK 17, Kotlin 2.4.20, `compileSdk = 37`, `targetSdk = 36`, and `minSdk = 24`. Set `android.builtInKotlin=false` and `android.newDsl=false` for compatibility with the Kotlin Android plugin, apply Kotlin Android and Compose compiler plugins at 2.4.20, and enable Compose.
 - [ ] **Step 2: Add `.gitignore`.** Ignore `.DS_Store`, `.gradle/`, `local.properties`, and `**/build/` so machine-local files and generated APKs do not enter Git history.
-- [ ] **Step 3: Add the app entry point and README.** `MainActivity.onCreate` calls `setContent { Text("SJ Music") }` as the temporary screen. Task 4 replaces the placeholder with `SJMusicApp(repository, playbackController)`.
+- [ ] **Step 3: Add the app entry point and README.** `MainActivity.onCreate` calls `setContent { Text("RIFT") }` as the temporary screen. Task 4 replaces the placeholder with `RiftApp(repository, playbackController)`.
 - [ ] **Step 4: Build the empty app shell.** Run `./gradlew assembleDebug` and confirm `app/build/outputs/apk/debug/app-debug.apk` is produced.
 - [ ] **Step 5: Commit the project shell.** Commit only the Android scaffold and `.gitignore` as `build: scaffold Android app`.
 
 ### Task 2: Read the local audio library
 
 **Files:**
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/model/AudioTrack.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/AudioLibraryRepository.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/library/MediaStoreAudioLibraryRepository.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/music/model/AudioTrack.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/music/library/AudioLibraryRepository.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/music/library/MediaStoreAudioLibraryRepository.kt`
 - Modify: `app/src/main/AndroidManifest.xml`
 - Create: `app/src/main/res/values/strings.xml`
 
@@ -106,9 +106,9 @@
 ### Task 3: Add background playback and the queue
 
 **Files:**
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/PlaybackService.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/PlaybackController.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/Media3PlaybackController.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackService.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackController.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/music/playback/Media3PlaybackController.kt`
 - Modify: `gradle/libs.versions.toml`
 - Modify: `app/build.gradle.kts`
 - Modify: `app/src/main/AndroidManifest.xml`
@@ -128,12 +128,12 @@
 ### Task 4: Build the library screen and search
 
 **Files:**
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/SJMusicApp.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryViewModel.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryScreen.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/theme/Color.kt`
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/theme/Theme.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/MainActivity.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/ui/RiftApp.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryViewModel.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryScreen.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/ui/theme/Color.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/ui/theme/Theme.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/MainActivity.kt`
 - Modify: `app/src/main/res/values/strings.xml`
 - Modify: `app/build.gradle.kts`
 
@@ -142,16 +142,16 @@
 - [ ] **Step 1: Add the colorful Compose theme.** Define original saturated accent colors, a light neutral background, rounded touch targets, and large readable type; do not use Apple logos or product imagery.
 - [ ] **Step 2: Implement library state.** Load tracks through `AudioLibraryRepository`; filter `visibleTracks` case-insensitively on title, artist, and album; provide filename and “Unknown artist” fallbacks for missing metadata. `playTrack(index)` calls `setQueue(visibleTracks, index)` so queue order matches the visible search result.
 - [ ] **Step 3: Implement `LibraryScreen`.** Render search, a scrollable song list, loading state, permission explanation/retry action, and an empty-library message. Selecting a row calls `playTrack(index)`.
-- [ ] **Step 4: Connect the app shell.** `MainActivity` creates one repository and controller, passes them to `SJMusicApp(repository, playbackController)`, and releases the controller when the Activity is destroyed. Wire permission results into `loadLibrary()` and provide a `ViewModelProvider.Factory` to the library screen.
+- [ ] **Step 4: Connect the app shell.** `MainActivity` creates one repository and controller, passes them to `RiftApp(repository, playbackController)`, and releases the controller when the Activity is destroyed. Wire permission results into `loadLibrary()` and provide a `ViewModelProvider.Factory` to the library screen.
 - [ ] **Step 5: Build the app.** Run `./gradlew assembleDebug` and confirm the APK is produced.
 - [ ] **Step 6: Commit the library UI.** Commit the theme, library screen, view model, app shell, and strings as `feat: add searchable music library`.
 
 ### Task 5: Build Now Playing and queue controls
 
 **Files:**
-- Create: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/player/NowPlayingScreen.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/SJMusicApp.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryScreen.kt`
+- Create: `app/src/main/java/com/dizzyvy/rift/ui/player/NowPlayingScreen.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/RiftApp.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryScreen.kt`
 - Modify: `app/src/main/res/values/strings.xml`
 
 **Interfaces:** `NowPlayingScreen(snapshot: PlaybackSnapshot, onPlayPause: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit, onSelectQueueItem: (Int) -> Unit, onBack: () -> Unit)`. Render the queue from `snapshot.queue` and highlight `snapshot.currentIndex`.
@@ -165,10 +165,10 @@
 ### Task 6: Handle playback failures and package the first APK
 
 **Files:**
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/PlaybackService.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/music/playback/Media3PlaybackController.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/library/LibraryViewModel.kt`
-- Modify: `app/src/main/java/com/dizzyvy/sjmusicapp/ui/SJMusicApp.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackService.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/music/playback/Media3PlaybackController.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryViewModel.kt`
+- Modify: `app/src/main/java/com/dizzyvy/rift/ui/RiftApp.kt`
 - Modify: `app/src/main/res/values/strings.xml`
 - Modify: `README.md`
 
