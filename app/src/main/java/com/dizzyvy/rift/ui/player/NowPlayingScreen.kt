@@ -28,6 +28,7 @@ import com.dizzyvy.rift.music.lyrics.LocalLyrics
 import com.dizzyvy.rift.music.lyrics.LocalLyricsRepository
 import com.dizzyvy.rift.music.playback.PlaybackSnapshot
 import com.dizzyvy.rift.ui.components.AlbumArtwork
+import com.dizzyvy.rift.ui.theme.RiftBackgroundBrush
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -128,17 +129,13 @@ fun NowPlayingScreen(
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize()
-            .then(
-                if (artworkAccent != null) Modifier.background(
-                    Brush.verticalGradient(listOf(artworkAccent!!.copy(alpha = 0.2f), MaterialTheme.colorScheme.background)),
-                ) else Modifier.background(MaterialTheme.colorScheme.background),
-            )
+            .background(if (artworkAccent != null) Brush.verticalGradient(listOf(artworkAccent!!.copy(alpha = 0.14f), MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.background)) else RiftBackgroundBrush())
             .verticalScroll(scrollState).padding(horizontal = 22.dp),
     ) {
         TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
         Text("NOW PLAYING", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(14.dp))
-        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(280.dp).pointerInput(track.uri) {
+        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(190.dp).pointerInput(track.uri) {
             var drag = 0f
             detectHorizontalDragGestures(
                 onDragEnd = { if (drag > 48f) onNext() else if (drag < -48f) onPrevious(); drag = 0f },
@@ -146,29 +143,27 @@ fun NowPlayingScreen(
             )
         })
         Spacer(Modifier.height(18.dp))
-        Text(track.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Text("${track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"}  ·  ${track.album.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown album"}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(track.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Text("${displayMetadata(track.artist, "Unknown artist")}  ·  ${displayMetadata(track.album, "Unknown album")}", modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            TextButton(onClick = { showPlaylistSheet = true }) { Text("Add to playlist") }
-            TextButton(onClick = { onFavorite(track, !isFavorite) }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
+            AssistChip(onClick = { showPlaylistSheet = true }, label = { Text("Add to playlist") })
+            AssistChip(onClick = { onFavorite(track, !isFavorite) }, label = { Text(if (isFavorite) "♥ Favorite" else "♡ Favorite", color = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
                 contentDescription = if (isFavorite) "Remove ${track.title} from favorites" else "Add ${track.title} to favorites"
-            }) {
-                Text(if (isFavorite) "♥ Favorite" else "♡ Favorite", color = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            })
         }
         Spacer(Modifier.height(12.dp))
-        Slider(value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()), onValueChange = { onSeek(it.toLong()) }, valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth())
+        Slider(value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()), onValueChange = { onSeek(it.toLong()) }, enabled = playback.durationMs > 0L, valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth(), colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(playback.positionMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("-${formatTime((playback.durationMs - playback.positionMs).coerceAtLeast(0L))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onShuffle(!playback.shuffleEnabled) }) { Text(if (playback.shuffleEnabled) "🔀 ON" else "🔀") }
-            TextButton(onClick = { onRepeat(if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) androidx.media3.common.Player.REPEAT_MODE_ALL else if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF) }) {
+            FilterChip(selected = playback.shuffleEnabled, onClick = { onShuffle(!playback.shuffleEnabled) }, label = { Text(if (playback.shuffleEnabled) "⤨ Shuffle on" else "⤨ Shuffle") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
+            FilterChip(selected = playback.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF, onClick = { onRepeat(if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) androidx.media3.common.Player.REPEAT_MODE_ALL else if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF) }, label = {
                 Text(when (playback.repeatMode) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "REPEAT ALL"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "REPEAT ONE"; else -> "REPEAT OFF" })
-            }
+            }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
             Box {
-                TextButton(onClick = { speedMenuOpen = true }) { Text("${playback.playbackSpeed}×") }
+                AssistChip(onClick = { speedMenuOpen = true }, label = { Text("${playback.playbackSpeed}×") })
                 DropdownMenu(expanded = speedMenuOpen, onDismissRequest = { speedMenuOpen = false }) {
                     listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { speed ->
                         DropdownMenuItem(text = { Text("${speed}×") }, onClick = { onPlaybackSpeed(speed); speedMenuOpen = false })
@@ -177,33 +172,42 @@ fun NowPlayingScreen(
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { loopStartMs = playback.positionMs; loopEndMs = null }) {
-                Text(loopStartMs?.let { "A · ${formatTime(it)}" } ?: "Set A")
-            }
-            TextButton(
-                enabled = loopStartMs != null && playback.positionMs > (loopStartMs ?: Long.MAX_VALUE),
-                onClick = { loopEndMs = playback.positionMs },
-            ) {
+            FilterChip(selected = loopStartMs != null, onClick = { loopStartMs = playback.positionMs; loopEndMs = null }, label = { Text(loopStartMs?.let { "A · ${formatTime(it)}" } ?: "Set A") })
+            FilterChip(selected = loopEndMs != null, enabled = loopStartMs != null && playback.positionMs > (loopStartMs ?: Long.MAX_VALUE), onClick = { loopEndMs = playback.positionMs }, label = {
                 Text(loopEndMs?.let { "B · ${formatTime(it)}" } ?: "Set B")
-            }
+            })
             if (loopStartMs != null || loopEndMs != null) {
-                TextButton(onClick = { loopStartMs = null; loopEndMs = null }) { Text("Clear loop") }
+                AssistChip(onClick = { loopStartMs = null; loopEndMs = null }, label = { Text("Clear") })
             }
         }
-        TextButton(onClick = { showSleepTimerDialog = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(when {
+        Text("A–B repeat · Set A, then Set B to loop that section", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        AssistChip(onClick = { showSleepTimerDialog = true }, label = { Text(when {
                 playback.sleepTimerFinishingTrack -> "Sleep timer · finishing this song"
                 playback.sleepTimerRemainingMs != null -> "Sleep timer · ${((playback.sleepTimerRemainingMs + 59_999L) / 60_000L)} min"
-                else -> "Sleep timer"
-            })
+                else -> "Sleep timer · stop after a time or this song"
+            }) }, modifier = Modifier.align(Alignment.CenterHorizontally))
+        ClickWheel(playing = playback.isPlaying, queueOpen = queueOpen, onMenu = onBack, onPrevious = onPrevious, onTogglePlayback = onPlayPause, onNext = onNext, onSelect = { queueOpen = !queueOpen }, sensitivity = clickWheelSensitivity, hapticsEnabled = clickWheelHaptics, compact = true, onRotate = { delta ->
+            if (queueOpen) scope.launch { scrollState.scrollTo((scrollState.value + (delta * 2400).roundToInt()).coerceIn(0, scrollState.maxValue)) }
+            else onSeek((playback.positionMs + (delta * 120_000).roundToInt()).coerceIn(0L, playback.durationMs.coerceAtLeast(0L)))
+        })
+        TextButton(onClick = { wheelSettingsOpen = !wheelSettingsOpen }, modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp)) {
+            Text(if (wheelSettingsOpen) "Hide click wheel settings" else "Click wheel settings")
+        }
+        if (wheelSettingsOpen) {
+            Text("Sensitivity · ${"%.2f".format(localWheelSensitivity)}×", style = MaterialTheme.typography.labelMedium)
+            Slider(value = localWheelSensitivity, onValueChange = { localWheelSensitivity = it }, onValueChangeFinished = { onClickWheelSensitivityChange(localWheelSensitivity) }, valueRange = 0.5f..2f, steps = 5, modifier = Modifier.semantics { contentDescription = "Click wheel sensitivity" })
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Haptic ticks", modifier = Modifier.weight(1f))
+                Switch(checked = clickWheelHaptics, onCheckedChange = onClickWheelHapticsChange, modifier = Modifier.semantics { contentDescription = "Click wheel haptic ticks" })
+            }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (lyricsDirectoryUri != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("LYRICS", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = onChooseLyricsDirectory) { Text(if (lyricsDirectoryUri == null) "Choose music folder" else "Change folder") }
-        }
+            TextButton(onClick = onChooseLyricsDirectory) { Text("Change folder") }
+        } else TextButton(onClick = onChooseLyricsDirectory, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Set up lyrics") }
         when {
-            lyricsDirectoryUri == null -> Text("Choose the folder containing your music and lyric files.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            lyricsDirectoryUri == null -> Unit
             loadingLyrics -> LinearProgressIndicator(Modifier.fillMaxWidth())
             lyricsError -> Text("Could not read lyrics from that folder.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             lyrics?.timedLines?.isNotEmpty() == true -> {
@@ -223,28 +227,6 @@ fun NowPlayingScreen(
             }
             !lyrics?.plainText.isNullOrBlank() -> Text(lyrics!!.plainText, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, maxLines = 12, overflow = TextOverflow.Ellipsis)
             else -> Text("No lyrics found for this song.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        ClickWheel(playing = playback.isPlaying, queueOpen = queueOpen, onMenu = onBack, onPrevious = onPrevious, onTogglePlayback = onPlayPause, onNext = onNext, onSelect = { queueOpen = !queueOpen }, sensitivity = clickWheelSensitivity, hapticsEnabled = clickWheelHaptics, onRotate = { delta ->
-            if (queueOpen) scope.launch { scrollState.scrollTo((scrollState.value + (delta * 2400).roundToInt()).coerceIn(0, scrollState.maxValue)) }
-            else onSeek((playback.positionMs + (delta * 120_000).roundToInt()).coerceIn(0L, playback.durationMs.coerceAtLeast(0L)))
-        })
-        TextButton(onClick = { wheelSettingsOpen = !wheelSettingsOpen }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (wheelSettingsOpen) "Hide click wheel settings" else "Click wheel settings")
-        }
-        if (wheelSettingsOpen) {
-            Text("Sensitivity · ${"%.2f".format(localWheelSensitivity)}×", style = MaterialTheme.typography.labelMedium)
-            Slider(
-                value = localWheelSensitivity,
-                onValueChange = { localWheelSensitivity = it },
-                onValueChangeFinished = { onClickWheelSensitivityChange(localWheelSensitivity) },
-                valueRange = 0.5f..2f,
-                steps = 5,
-                modifier = Modifier.semantics { contentDescription = "Click wheel sensitivity" },
-            )
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Haptic ticks", modifier = Modifier.weight(1f))
-                Switch(checked = clickWheelHaptics, onCheckedChange = onClickWheelHapticsChange, modifier = Modifier.semantics { contentDescription = "Click wheel haptic ticks" })
-            }
         }
         if (playback.errorMessage != null) Text(playback.errorMessage, Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
         if (queueOpen) {
@@ -407,6 +389,9 @@ private fun formatTime(milliseconds: Long): String {
     val seconds = milliseconds.coerceAtLeast(0L) / 1_000L
     return "%d:%02d".format(seconds / 60L, seconds % 60L)
 }
+
+private fun displayMetadata(value: String, fallback: String): String =
+    value.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) && it.none { char -> char == '?' || char == '\uFFFD' } } ?: fallback
 
 private suspend fun sampleArtworkColor(bitmap: android.graphics.Bitmap): Color? = withContext(Dispatchers.Default) {
     if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return@withContext null

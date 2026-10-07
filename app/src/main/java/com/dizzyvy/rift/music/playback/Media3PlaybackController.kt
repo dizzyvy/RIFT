@@ -49,7 +49,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
-            refreshSnapshot(player)
+            refreshSnapshot(player, events.contains(Player.EVENT_TIMELINE_CHANGED))
             updatePositionPolling()
         }
 
@@ -61,7 +61,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             }
             _snapshot.value = _snapshot.value.copy(errorMessage = null)
             mediaController?.let { player ->
-                refreshSnapshot(player)
+                refreshSnapshot(player, queueChanged = true)
                 player.currentMediaItem?.toAudioTrack()?.let(::loadSessionArtwork)
             }
         }
@@ -94,7 +94,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
                         }
                         pendingAddedTracks.toList().forEach { controller.addMediaItem(toMediaItem(it)) }
                         pendingAddedTracks.clear()
-                        refreshSnapshot(controller)
+                        refreshSnapshot(controller, queueChanged = true)
                         updatePositionPolling()
                     }
                     .onFailure {
@@ -268,10 +268,12 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     }
 
     private fun applyQueue(controller: MediaController, tracks: List<AudioTrack>, startIndex: Int) {
+        controller.stop()
+        controller.clearMediaItems()
         controller.setMediaItems(tracks.map(::toMediaItem), startIndex, C.TIME_UNSET)
         controller.prepare()
         controller.play()
-        refreshSnapshot(controller)
+        refreshSnapshot(controller, queueChanged = true)
         updatePositionPolling()
         tracks.getOrNull(startIndex)?.let(::loadSessionArtwork)
     }
@@ -290,10 +292,10 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             .build()
     }
 
-    private fun refreshSnapshot(player: Player) {
-        val queue = (0 until player.mediaItemCount).mapNotNull { index ->
-            player.getMediaItemAt(index).toAudioTrack()
-        }
+    private fun refreshSnapshot(player: Player, queueChanged: Boolean = false) {
+        val queue = if (queueChanged || _snapshot.value.queue.size != player.mediaItemCount) {
+            (0 until player.mediaItemCount).mapNotNull { index -> player.getMediaItemAt(index).toAudioTrack() }
+        } else _snapshot.value.queue
         val currentIndex = player.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
         val currentTrack = queue.getOrNull(currentIndex)
         val duration = player.duration.takeIf { it >= 0L && it != C.TIME_UNSET } ?: currentTrack?.durationMs ?: 0L
@@ -348,7 +350,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
 
         positionJob = scope.launch {
             while (isActive && mediaController?.isPlaying == true) {
-                mediaController?.let(::refreshSnapshot)
+                mediaController?.let { refreshSnapshot(it) }
                 delay(POSITION_UPDATE_INTERVAL_MS)
             }
             positionJob = null

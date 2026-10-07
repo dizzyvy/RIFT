@@ -64,6 +64,7 @@ import com.dizzyvy.rift.ui.theme.NanoPurple
 import com.dizzyvy.rift.ui.theme.NanoSurface
 import com.dizzyvy.rift.ui.theme.NanoSurfaceRaised
 import com.dizzyvy.rift.ui.theme.NanoText
+import com.dizzyvy.rift.ui.theme.RiftBackgroundBrush
 import kotlinx.coroutines.launch
 
 private val NanoAccentBrush = Brush.linearGradient(listOf(NanoCyan, NanoBlue, NanoPurple, NanoPink))
@@ -136,7 +137,7 @@ fun LibraryScreen(
     LaunchedEffect(state.category, state.browseTitle) { selectedUris = emptySet() }
     Column(
         Modifier.fillMaxSize()
-            .then(if (nanoMode) Modifier.background(NanoScreenGlow) else Modifier.background(MaterialTheme.colorScheme.background))
+            .background(if (nanoMode) NanoScreenGlow else RiftBackgroundBrush())
             .padding(horizontal = 18.dp),
     ) {
         if (state.browseTitle != null) {
@@ -164,7 +165,7 @@ fun LibraryScreen(
                             DropdownMenuItem(text = { Text(if (themeMode == value) "✓ $label" else label) }, onClick = { onThemeModeChange(value); appearanceMenuOpen = false })
                         }
                         HorizontalDivider()
-                        Text("NANO CHROMATIC", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("TEXT COLOR", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         listOf("Chromatic", "Coral", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Silver", "Graphite").forEach { color ->
                             DropdownMenuItem(text = { Text(if (accentName.equals(color, true)) "✓ $color" else "● $color") }, onClick = { onAccentChange(color); appearanceMenuOpen = false })
                         }
@@ -173,13 +174,14 @@ fun LibraryScreen(
             }
         }
         if (state.browseTitle == null) {
+            Box(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 val libraryFilters = listOf("Songs", "Artists", "Albums", "Playlists", "Folders", "Genres", "Years", "Duplicates")
                 val searchFilters = if (state.searchQuery.isBlank()) libraryFilters else listOf("All") + libraryFilters
                 searchFilters.forEach { tab ->
                     val category = if (tab == "All") "Search" else tab
                     if (nanoMode) NanoFilterChip(tab, state.category == category) { onCategory(category) }
-                    else FilterChip(selected = state.category == category, onClick = { onCategory(category) }, label = { Text(tab) })
+                    else FilterChip(selected = state.category == category, onClick = { onCategory(category) }, label = { Text(tab) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
                 }
                 if (state.category == "Playlists") {
                     TextButton(onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
@@ -187,6 +189,8 @@ fun LibraryScreen(
                     TextButton(onClick = onImportBackup) { Text("Restore") }
                     TextButton(onClick = onExportBackup) { Text("Backup") }
                 }
+            }
+            Box(Modifier.align(Alignment.CenterEnd).width(20.dp).height(42.dp).background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.background.copy(alpha = 0f), MaterialTheme.colorScheme.background))))
             }
             if (selectedTracks.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -238,7 +242,7 @@ fun LibraryScreen(
                         }
                         FilterChip(selected = state.hideShortTracks, onClick = { onHideShortTracks(!state.hideShortTracks) }, label = { Text("Hide under 30s") })
                     }
-                    if (state.visibleTracks.isNotEmpty()) TextButton(onClick = onShuffleAll, modifier = Modifier.fillMaxWidth()) { Text("Shuffle all") }
+                    if (state.visibleTracks.isNotEmpty()) TextButton(onClick = onShuffleAll, modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp).padding(vertical = 0.dp)) { Text("Shuffle all") }
                 }
             }
         }
@@ -629,7 +633,7 @@ private fun PlaylistBrowseRow(
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(playlist.name, fontWeight = FontWeight.SemiBold)
-            Text(if (playlist.isLocal) "Playlist" else "On this device", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(countLabel(playlist.trackCount, "song"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (playlist.isLocal) {
             Box {
@@ -688,7 +692,7 @@ private fun TrackRow(
             Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (playing) Text("♫", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp))
-        TextButton(onClick = onFavorite, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = if (isFavorite) "Remove ${track.title} from favorites" else "Add ${track.title} to favorites" }) {
+        if (!showReorder) TextButton(onClick = onFavorite, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = if (isFavorite) "Remove ${track.title} from favorites" else "Add ${track.title} to favorites" }) {
             Text(if (isFavorite) "♥" else "♡", color = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (showReorder) {
@@ -701,16 +705,15 @@ private fun TrackRow(
                     if (dragDistance < -48.dp.toPx() && canMoveUp) { onMoveUp(); dragDistance = 0f }
                 }
             }.padding(horizontal = 6.dp))
-            TextButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↑") }
-            TextButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp)) { Text("↓") }
         }
-        if (showRemove) TextButton(onClick = onRemove, modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 48.dp).semantics { contentDescription = "Remove ${track.title} from playlist" }) { Text("×") }
         Box {
             TextButton(onClick = { moreMenuOpen = true }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "More actions for ${track.title}" }) { Text("⋮") }
             DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
                 DropdownMenuItem(text = { Text("Play next") }, onClick = { moreMenuOpen = false; onPlayNext() })
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { moreMenuOpen = false; onQueue() })
                 DropdownMenuItem(text = { Text("Add to playlist") }, onClick = { moreMenuOpen = false; onAdd() })
+                if (showReorder || showRemove) DropdownMenuItem(text = { Text("Remove from playlist") }, onClick = { moreMenuOpen = false; onRemove() })
+                if (!showReorder) DropdownMenuItem(text = { Text(if (isFavorite) "Remove from favorites" else "Add to favorites") }, onClick = { moreMenuOpen = false; onFavorite() })
                 DropdownMenuItem(text = { Text("Go to artist") }, onClick = { moreMenuOpen = false; onGoArtist() })
                 DropdownMenuItem(text = { Text("Go to album") }, onClick = { moreMenuOpen = false; onGoAlbum() })
                 DropdownMenuItem(text = { Text("Delete from device") }, onClick = { moreMenuOpen = false; onDelete() })
@@ -741,7 +744,7 @@ private fun TrackRow(
                 })
             }
         }
-        TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Add ${track.title} to playlist or queue" }) { Text("+") }
+        if (!showReorder) TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 56.dp).semantics { contentDescription = "Add ${track.title} to playlist or queue" }) { Text("+", style = MaterialTheme.typography.titleLarge) }
     }
     if (showDetails) {
         val format = track.mimeType.substringAfter('/', "").takeIf { it.isNotBlank() }?.uppercase() ?: track.displayName.substringAfterLast('.', "").uppercase().ifBlank { "Unknown" }
@@ -793,21 +796,23 @@ fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository,
             },
             onHorizontalDrag = { change, amount -> change.consume(); horizontalDrag += amount },
         )
-    }, color = if (nanoMode) NanoSurface else Color(0xFF252A33), shape = playerShape, tonalElevation = 4.dp) {
+    }, color = MaterialTheme.colorScheme.surface, shape = playerShape, tonalElevation = 4.dp) {
         Column {
             Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
                     AlbumTile(track, artworkRepository, Modifier.size(46.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(track.title, color = if (nanoMode) NanoText else Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                        Text(displayValue(track.artist, "Unknown artist"), color = if (nanoMode) NanoMuted else Color(0xFFB7BEC8), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                        Text(track.title, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                        Text(displayValue(track.artist, "Unknown artist"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
                 }
-                TextButton(onClick = onPlayPause) { Text(if (playback.isPlaying) "❚❚" else "▶", color = Color.White) }
+                TextButton(onClick = onPlayPause) { Text(if (playback.isPlaying) "❚❚" else "▶", color = MaterialTheme.colorScheme.primary) }
             }
             LinearProgressIndicator(
-                progress = { (playback.positionMs.toFloat() / playback.durationMs.coerceAtLeast(1L).toFloat()).coerceIn(0f, 1f) },
+                progress = { if (playback.durationMs > 0L) (playback.positionMs.toFloat() / playback.durationMs.toFloat()).coerceIn(0f, 1f) else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
             )
         }
     }
@@ -843,7 +848,7 @@ private fun BrowseRow(
                 .then(if (nanoMode) Modifier.background(NanoAccentBrush) else Modifier.background(MaterialTheme.colorScheme.tertiaryContainer)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge, color = if (nanoMode) Color.White else MaterialTheme.colorScheme.onTertiaryContainer)
+            Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimary)
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -869,7 +874,7 @@ private fun AlphaIndexRail(names: List<String>, listState: androidx.compose.foun
 private fun countLabel(count: Int, singular: String): String = if (count == 1) "1 $singular" else "$count ${singular}s"
 
 private fun displayValue(value: String, fallback: String): String =
-    value.takeIf { it.isNotBlank() && !it.equals("<unknown>", ignoreCase = true) } ?: fallback
+    value.takeIf { it.isNotBlank() && !it.equals("<unknown>", ignoreCase = true) && it.none { char -> char == '?' || char == '\uFFFD' } } ?: fallback
 
 @Composable
 private fun EmptyPanel(icon: String, title: String, subtitle: String, button: String? = null, onClick: (() -> Unit)? = null) {
@@ -900,6 +905,6 @@ private fun NanoFilterChip(label: String, selected: Boolean, onClick: () -> Unit
             .clickable(onClick = onClick)
             .padding(horizontal = 15.dp, vertical = 9.dp),
     ) {
-        Text(label, color = if (selected) Color.White else NanoMuted, style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        Text(label, color = if (selected) MaterialTheme.colorScheme.onPrimary else NanoMuted, style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
     }
 }

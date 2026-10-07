@@ -40,20 +40,22 @@ fun ClickWheel(
     onRotate: (Float) -> Unit,
     sensitivity: Float = 1f,
     hapticsEnabled: Boolean = true,
+    compact: Boolean = false,
 ) {
     val view = LocalView.current
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val wheelColor = if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF202833) else androidx.compose.ui.graphics.Color(0xFFE8E5DF)
     val wheelInsetColor = if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF303A47) else androidx.compose.ui.graphics.Color(0xFFF5F3EE)
     val wheelOutlineColor = if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF425165) else androidx.compose.ui.graphics.Color(0xFFD4D0C8)
-    val centerRadius = with(LocalDensity.current) { 54.dp.toPx() }
+    val centerRadius = with(LocalDensity.current) { (if (compact) 44.dp else 54.dp).toPx() }
     val latestOnRotate = rememberUpdatedState(onRotate)
     val haptics = remember(view, latestOnRotate, sensitivity, hapticsEnabled) {
         HapticDetents(view, sensitivity.coerceIn(0.5f, 2f), hapticsEnabled) { latestOnRotate.value(it) }
     }
-    Box(Modifier.fillMaxWidth().height(286.dp), contentAlignment = Alignment.Center) {
+    val wheelSize = if (compact) 208.dp else 270.dp
+    Box(Modifier.fillMaxWidth().height(if (compact) 220.dp else 286.dp), contentAlignment = Alignment.Center) {
         Box(
-            Modifier.size(270.dp).clip(CircleShape)
+            Modifier.size(wheelSize).clip(CircleShape)
                 .background(wheelColor)
                 .border(1.dp, wheelOutlineColor, CircleShape)
                 .pointerInput(queueOpen) {
@@ -74,12 +76,12 @@ fun ClickWheel(
             contentAlignment = Alignment.Center,
         ) {
             // A second inset disc gives the wheel a clean inner track; the center is a plain SELECT control.
-            Box(Modifier.fillMaxSize().padding(36.dp).clip(CircleShape).background(wheelInsetColor))
-            WheelLabel("MENU", Modifier.align(Alignment.TopCenter).padding(top = 19.dp), onMenu)
-            WheelLabel("|◀", Modifier.align(Alignment.CenterStart).padding(start = 15.dp), onPrevious)
-            WheelLabel("▶|", Modifier.align(Alignment.CenterEnd).padding(end = 15.dp), onNext)
-            WheelLabel(if (playing) "❚❚" else "▶", Modifier.align(Alignment.BottomCenter).padding(bottom = 19.dp), onTogglePlayback)
-            Surface(onClick = onSelect, modifier = Modifier.size(104.dp).semantics { contentDescription = if (queueOpen) "Close Up Next" else "Open Up Next" }, shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+            Box(Modifier.fillMaxSize().padding(if (compact) 28.dp else 36.dp).clip(CircleShape).background(wheelInsetColor))
+            WheelLabel("MENU", Modifier.align(Alignment.TopCenter).padding(top = if (compact) 13.dp else 19.dp), onMenu)
+            WheelLabel("|◀", Modifier.align(Alignment.CenterStart).padding(start = if (compact) 11.dp else 15.dp), onPrevious)
+            WheelLabel("▶|", Modifier.align(Alignment.CenterEnd).padding(end = if (compact) 11.dp else 15.dp), onNext)
+            WheelLabel(if (playing) "❚❚" else "▶", Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 13.dp else 19.dp), onTogglePlayback)
+            Surface(onClick = onSelect, modifier = Modifier.size(if (compact) 82.dp else 104.dp).semantics { contentDescription = if (queueOpen) "Close Up Next" else "Open Up Next" }, shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
                 Box(contentAlignment = Alignment.Center) { Text("SELECT", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
             }
         }

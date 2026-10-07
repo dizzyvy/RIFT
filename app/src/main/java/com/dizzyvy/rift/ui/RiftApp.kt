@@ -3,6 +3,7 @@ package com.dizzyvy.rift.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -12,6 +13,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalContext
 import android.provider.OpenableColumns
 import android.media.MediaMetadataRetriever
@@ -169,10 +172,11 @@ fun RiftApp(
     }
 
     LaunchedEffect(hasAudioPermission) {
-        libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = hasAudioPermission)
+        libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = false)
     }
 
     RiftTheme(mode = themeMode, accent = accentName) {
+      CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
       androidx.compose.foundation.layout.Box(Modifier.safeDrawingPadding()) {
         if (showPlayer) {
             NowPlayingScreen(
@@ -277,6 +281,7 @@ fun RiftApp(
                 onToggleFolderHidden = libraryViewModel::setFolderHidden,
             )
         }
+      }
       }
     }
 }

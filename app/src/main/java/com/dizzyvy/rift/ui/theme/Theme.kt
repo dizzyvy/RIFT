@@ -5,6 +5,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.compositeOver
 
 private fun accentColor(name: String): Color = when (name.lowercase()) {
     "red" -> Color(0xFFD92338)
@@ -83,4 +85,17 @@ fun RiftTheme(
         )
     }
     MaterialTheme(colorScheme = palette, content = content)
+}
+
+@Composable
+fun RiftBackgroundBrush(): Brush {
+    val colors = MaterialTheme.colorScheme
+    val background = colors.background
+    return Brush.verticalGradient(
+        listOf(
+            colors.primary.copy(alpha = 0.055f).compositeOver(background),
+            background,
+            colors.secondary.copy(alpha = 0.035f).compositeOver(background),
+        ),
+    )
 }

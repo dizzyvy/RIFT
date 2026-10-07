@@ -12,8 +12,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.dizzyvy.rift.music.library.MediaStoreAudioLibraryRepository
 import com.dizzyvy.rift.music.library.SqlitePlaylistStore
 import com.dizzyvy.rift.music.artwork.EmbeddedArtworkRepository
@@ -45,6 +47,13 @@ class MainActivity : ComponentActivity() {
         themeModeState.value = getPreferences(MODE_PRIVATE).getString(KEY_THEME_MODE, "light") ?: "light"
         accentNameState.value = getPreferences(MODE_PRIVATE).getString(KEY_ACCENT_NAME, "Coral") ?: "Coral"
         setContent {
+            SideEffect {
+                val lightSystemBars = themeModeState.value.equals("light", ignoreCase = true)
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = lightSystemBars
+                    isAppearanceLightNavigationBars = lightSystemBars
+                }
+            }
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission(),
             ) { granted -> audioPermissionState.value = granted }

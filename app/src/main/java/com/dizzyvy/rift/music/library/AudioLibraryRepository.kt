@@ -3,6 +3,7 @@ package com.dizzyvy.rift.music.library
 import com.dizzyvy.rift.music.model.AudioTrack
 
 interface AudioLibraryRepository {
+    suspend fun libraryVersion(): String = "unknown"
     suspend fun loadTracks(): List<AudioTrack>
     suspend fun scanTracks(onProgress: (processed: Int, total: Int) -> Unit): LibraryScanResult {
         val tracks = loadTracks()

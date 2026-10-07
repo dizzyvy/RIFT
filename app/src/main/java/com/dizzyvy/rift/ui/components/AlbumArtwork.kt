@@ -18,6 +18,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.dp
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +37,7 @@ fun AlbumArtwork(uri: Uri?, title: String, repository: ArtworkRepository?, modif
             val colors = listOf(Color(0xFFE95865), Color(0xFF438CCD), Color(0xFFFFC833), Color(0xFF50A982), Color(0xFF9B75BC))
             val color = colors[(title.hashCode().toUInt().toLong() % colors.size).toInt()]
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(color, color.copy(alpha = .65f)))), contentAlignment = Alignment.Center) {
-                Text(if (fallbackInitial) title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?" else "♫", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                Text(if (fallbackInitial) title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?" else "♫", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 24.sp)
             }
         }
     }

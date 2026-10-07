@@ -166,7 +166,11 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     override suspend fun loadPlaylists(): List<DevicePlaylist> = withContext(Dispatchers.IO) {
         val saved = readableDatabase.query("playlists", arrayOf("_id", "name"), null, null, null, null, "name COLLATE NOCASE ASC").use { cursor ->
             buildList {
-                while (cursor.moveToNext()) add(DevicePlaylist(cursor.getLong(0), LOCAL_VOLUME, cursor.getString(1), isLocal = true))
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    val count = readableDatabase.rawQuery("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = ?", arrayOf(id.toString())).use { countCursor -> if (countCursor.moveToFirst()) countCursor.getInt(0) else 0 }
+                    add(DevicePlaylist(id, LOCAL_VOLUME, cursor.getString(1), isLocal = true, trackCount = count))
+                }
             }
         }
         listOf(

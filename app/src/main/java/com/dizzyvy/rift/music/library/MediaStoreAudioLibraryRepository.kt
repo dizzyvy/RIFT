@@ -14,6 +14,13 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
 
+    override suspend fun libraryVersion(): String = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@withContext "legacy"
+        MediaStore.getExternalVolumeNames(appContext).sorted().joinToString("|") { volume ->
+            "$volume:${MediaStore.getVersion(appContext, volume)}"
+        }
+    }
+
     override suspend fun loadTracks(): List<AudioTrack> = withContext(Dispatchers.IO) { queryAllTracks().tracks }
 
     override suspend fun scanTracks(onProgress: (processed: Int, total: Int) -> Unit): LibraryScanResult = withContext(Dispatchers.IO) {
@@ -41,7 +48,14 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 resolver.query(uri, arrayOf(MediaStore.Audio.Playlists._ID, MediaStore.Audio.Playlists.NAME), null, null, "${MediaStore.Audio.Playlists.NAME} COLLATE NOCASE ASC")?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Playlists._ID)
                     val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Playlists.NAME)
-                    buildList { while (cursor.moveToNext()) add(DevicePlaylist(cursor.getLong(idCol), volume, cursor.getString(nameCol).orEmpty())) }
+                    buildList {
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getLong(idCol)
+                            val members = MediaStore.Audio.Playlists.Members.getContentUri(volume, id)
+                            val count = resolver.query(members, arrayOf(MediaStore.Audio.Playlists.Members.AUDIO_ID), null, null, null)?.use { it.count } ?: 0
+                            add(DevicePlaylist(id, volume, cursor.getString(nameCol).orEmpty(), trackCount = count))
+                        }
+                    }
                 }.orEmpty()
             }.getOrElse { Log.w(TAG, "Could not read playlists on $volume", it); emptyList() }
         }
