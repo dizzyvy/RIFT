@@ -37,3 +37,7 @@ Playback formats depend on the codecs available on the phone. Android's built-in
 ## Install on a phone
 
 Build `app/build/outputs/apk/debug/app-debug.apk`, copy it to the phone, open it in My Files, and approve Android's install prompt if shown. The debug APK is signed for development installs and is not a Play Store release.
+
+## Download
+
+[Download the RIFT v0.3.0 debug APK](releases/RIFT-v0.3.0-debug.apk).
