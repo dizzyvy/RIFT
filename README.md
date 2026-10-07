@@ -1,4 +1,4 @@
-# SJ Music
+# RIFT
 
 A small, local music player for Android with a bright, click-wheel-era portable-player feel. The first version scans audio on the phone and removable storage, then plays it through Android's media session so lock-screen controls and Bluetooth/headset buttons work.
 
