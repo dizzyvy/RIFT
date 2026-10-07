@@ -1,6 +1,8 @@
-# SJ Music
+# RIFT
 
-A small, local music player for Android with a bright, click-wheel-era portable-player feel. The first version scans audio on the phone and removable storage, then plays it through Android's media session so lock-screen controls and Bluetooth/headset buttons work.
+RIFT is a local Android music player with a bright, click-wheel-era portable-player feel. It scans audio on the phone and removable storage, then plays it through Android's media session so lock-screen controls and Bluetooth/headset buttons work.
+
+The launcher uses the RIFT Queen artwork. The Android `applicationId` remains `com.dizzyvy.sjmusicapp` so this rebrand can update existing installations without resetting their app data.
 
 ## Requirements
 
