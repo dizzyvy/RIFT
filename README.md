@@ -40,4 +40,4 @@ Build `app/build/outputs/apk/debug/app-debug.apk`, copy it to the phone, open it
 
 ## Download
 
-[Download the RIFT v0.3.0 debug APK](releases/RIFT-v0.3.0-debug.apk).
+[Download the RIFT v0.4.0 debug APK](releases/RIFT-v0.4.0-debug.apk).
