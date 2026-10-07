@@ -41,7 +41,7 @@ fun SJMusicTheme(
         )
         "amoled" -> darkColorScheme(
             primary = accentColor,
-            onPrimary = if (goldAccent) Ink else Color.White,
+            onPrimary = if (darkAccentLabel) Ink else Color.White,
             secondary = SJBlue,
             onSecondary = Color.White,
             tertiary = SJSunshine,
@@ -52,7 +52,7 @@ fun SJMusicTheme(
         )
         else -> lightColorScheme(
             primary = accentColor,
-            onPrimary = if (goldAccent) Ink else Color.White,
+            onPrimary = if (darkAccentLabel) Ink else Color.White,
             secondary = SJBlue,
             onSecondary = Color.White,
             tertiary = SJSunshine,

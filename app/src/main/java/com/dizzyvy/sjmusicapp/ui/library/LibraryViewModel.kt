@@ -1,9 +1,13 @@
 package com.dizzyvy.sjmusicapp.ui.library
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
+import com.dizzyvy.sjmusicapp.music.library.BackupTrackRef
+import com.dizzyvy.sjmusicapp.music.library.BackupPlaylist
+import com.dizzyvy.sjmusicapp.music.library.LibraryBackupSnapshot
 import com.dizzyvy.sjmusicapp.music.library.PlaylistStore
 import com.dizzyvy.sjmusicapp.music.library.TrackPlayHistory
 import com.dizzyvy.sjmusicapp.music.library.M3uPlaylistFormat
@@ -18,6 +22,7 @@ import com.dizzyvy.sjmusicapp.music.library.artistGroupKeys
 import com.dizzyvy.sjmusicapp.music.library.artistNamesForTrack
 import com.dizzyvy.sjmusicapp.music.library.albumGroupKey
 import com.dizzyvy.sjmusicapp.music.model.AudioTrack
+import com.dizzyvy.sjmusicapp.music.backup.LibraryBackupCodec
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackController
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,11 +45,28 @@ private fun folderIsHidden(track: AudioTrack, hiddenFolderPaths: Set<String>): B
     }
 }
 
+private fun buildArtists(tracks: List<AudioTrack>): List<ArtistBrowseItem> = tracks
+    .flatMap { track -> artistNamesForTrack(track).map { it to track } }
+    .groupBy { (name, _) -> normalizeArtistName(name) }
+    .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size, entries.first().second.uri) }
+    .sortedWith(compareBy<ArtistBrowseItem> { if (librarySection(it.name) == '#') 0 else 1 }.thenBy { librarySection(it.name) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+
+private fun buildAlbums(tracks: List<AudioTrack>): List<AlbumBrowseItem> = tracks.groupBy(::albumGroupKey)
+    .map { (id, items) ->
+        val first = items.first()
+        val title = first.album.takeUnless { it.isBlank() || it.equals("<unknown>", true) } ?: "Unknown album"
+        val artist = first.albumArtist.ifBlank { artistNamesForTrack(first).joinToString(", ") }
+        AlbumBrowseItem(id, title, artist, items.size, first.uri)
+    }
+    .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+
 data class LibraryUiState(
     val tracks: List<AudioTrack> = emptyList(),
     val visibleTracks: List<AudioTrack> = emptyList(),
     val searchQuery: String = "",
     val isLoading: Boolean = false,
+    val scanProcessed: Int = 0,
+    val scanTotal: Int? = null,
     val permissionRequired: Boolean = false,
     val message: String? = null,
     val category: String = "Songs",
@@ -60,6 +82,7 @@ data class LibraryUiState(
     val actionMessage: String? = null,
     val sortOrder: String = "Title",
     val hideShortTracks: Boolean = false,
+    val lyricsTreeUri: String? = null,
     val hiddenFolderPaths: Set<String> = emptySet(),
     val favoriteUris: Set<String> = emptySet(),
     val playHistory: Map<String, TrackPlayHistory> = emptyMap(),
@@ -83,6 +106,19 @@ class LibraryViewModel(
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            runCatching { playlistStore.loadSettings() }.onSuccess { settings ->
+                val current = _state.value
+                val sortOrder = settings[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: current.sortOrder
+                val hideShortTracks = settings[SETTING_HIDE_SHORT_TRACKS]?.toBooleanStrictOrNull() ?: current.hideShortTracks
+                _state.value = current.copy(
+                    sortOrder = sortOrder,
+                    hideShortTracks = hideShortTracks,
+                    lyricsTreeUri = settings[SETTING_LYRICS_TREE],
+                    visibleTracks = filterTracks(availableTracks(current), current.searchQuery, sortOrder, hideShortTracks),
+                )
+            }
+        }
         viewModelScope.launch {
             playback.snapshot
                 .map { it.currentTrack }
@@ -110,27 +146,46 @@ class LibraryViewModel(
         }
         if (_state.value.isLoading || (!forceRefresh && _state.value.tracks.isNotEmpty())) return
 
-        _state.value = _state.value.copy(isLoading = true, permissionRequired = false, message = null)
+        _state.value = _state.value.copy(isLoading = true, permissionRequired = false, message = null, scanProcessed = 0, scanTotal = null)
         viewModelScope.launch {
             try {
-                val tracks = repository.loadTracks()
+                val cachedTracks = playlistStore.loadCachedTracks()
+                if (_state.value.tracks.isEmpty() && cachedTracks.isNotEmpty()) {
+                    val current = _state.value
+                    val cachedHidden = playlistStore.loadHiddenFolderPaths()
+                    val availableCachedTracks = cachedTracks.filterNot { folderIsHidden(it, cachedHidden) }
+                    val cachedArtists = buildArtists(availableCachedTracks)
+                    val cachedAlbums = buildAlbums(availableCachedTracks)
+                    _state.value = current.copy(
+                        tracks = cachedTracks,
+                        visibleTracks = filterTracks(availableCachedTracks, current.searchQuery, current.sortOrder, current.hideShortTracks),
+                        artists = cachedArtists,
+                        visibleArtists = filterArtists(cachedArtists, current.searchQuery),
+                        albums = cachedAlbums,
+                        visibleAlbums = filterAlbums(cachedAlbums, current.searchQuery),
+                        hiddenFolderPaths = cachedHidden,
+                        playlists = repository.loadPlaylists() + playlistStore.loadPlaylists(),
+                        visiblePlaylists = filterPlaylists(repository.loadPlaylists() + playlistStore.loadPlaylists(), current.searchQuery),
+                        favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet(),
+                    )
+                }
+                val generation = playlistStore.beginTrackCacheRefresh()
+                val scan = repository.scanTracks { processed, total ->
+                    val current = _state.value
+                    if (processed == total || processed % 96 == 0) {
+                        _state.value = current.copy(scanProcessed = processed, scanTotal = total)
+                    }
+                }
+                if (scan.tracks.isNotEmpty()) playlistStore.cacheTracks(generation, scan.tracks)
+                if (scan.complete) playlistStore.finishTrackCacheRefresh(generation)
+                val tracks = if (scan.complete || cachedTracks.isEmpty()) scan.tracks else cachedTracks
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
                 val availableTracks = tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
                 val favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                 val playHistory = playlistStore.loadPlayHistory()
-                val artistTracks = availableTracks.flatMap { track -> artistNamesForTrack(track).map { name -> name to track } }
-                val artists = artistTracks.groupBy { (name, _) -> name.trim().replace(Regex("\\s+"), "").lowercase() }
-                    .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size, entries.first().second.uri) }
-                    .sortedWith(compareBy<ArtistBrowseItem> { if (librarySection(it.name) == '#') 0 else 1 }.thenBy { librarySection(it.name) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
-                val albums = availableTracks.groupBy(::albumGroupKey)
-                    .map { (id, items) ->
-                        val first = items.first()
-                        val title = first.album.takeUnless { it.isBlank() || it.equals("<unknown>", true) } ?: "Unknown album"
-                        val artist = first.albumArtist.ifBlank { artistNamesForTrack(first).joinToString(", ") }
-                        AlbumBrowseItem(id, title, artist, items.size, first.uri)
-                    }
-                    .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                val artists = buildArtists(availableTracks)
+                val albums = buildAlbums(availableTracks)
                 val folders = tracks.mapNotNull { track ->
                     folderPath(track).takeIf(String::isNotBlank)?.let { it to track }
                 }.groupBy({ it.first }, { it.second }).map { (path, items) ->
@@ -167,6 +222,8 @@ class LibraryViewModel(
                     visibleDuplicateTracks = filterTracks(duplicateTracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
                     visiblePlaylists = filterPlaylists(playlists, _state.value.searchQuery),
                     isLoading = false,
+                    scanProcessed = if (scan.complete) tracks.size else _state.value.scanProcessed,
+                    scanTotal = if (scan.complete) tracks.size else _state.value.scanTotal,
                     permissionRequired = false,
                     message = null,
                 )
@@ -230,14 +287,79 @@ class LibraryViewModel(
         state.tracks.filterNot { folderIsHidden(it, state.hiddenFolderPaths) }
 
     fun setSortOrder(order: String) {
+        if (order !in SORT_ORDERS) return
         val current = _state.value
         _state.value = current.copy(sortOrder = order, visibleTracks = filterTracks(availableTracks(current), current.searchQuery, order, current.hideShortTracks))
+        viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_SORT_ORDER to order)) } }
     }
 
     fun setHideShortTracks(hide: Boolean) {
         val current = _state.value
         _state.value = current.copy(hideShortTracks = hide, visibleTracks = filterTracks(availableTracks(current), current.searchQuery, current.sortOrder, hide))
+        viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_HIDE_SHORT_TRACKS to hide.toString())) } }
     }
+
+    fun saveAppSettings(settings: Map<String, String>) {
+        viewModelScope.launch { runCatching { playlistStore.saveSettings(settings) } }
+    }
+
+    fun setLyricsDirectory(uri: Uri) {
+        saveAppSettings(mapOf(SETTING_LYRICS_TREE to uri.toString()))
+        _state.value = _state.value.copy(lyricsTreeUri = uri.toString())
+    }
+
+    fun exportBackup(onReady: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching { LibraryBackupCodec.encode(playlistStore.createBackupSnapshot(_state.value.tracks)) }
+                .onSuccess(onReady)
+                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not create backup.") }
+        }
+    }
+
+    fun importBackup(contents: String, onSettingsRestored: (Map<String, String>) -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val snapshot = LibraryBackupCodec.decode(contents)
+                val tracks = _state.value.tracks
+                val references = snapshot.playlists.sumOf { it.tracks.size } + snapshot.favorites.size
+                require(references == 0 || tracks.isNotEmpty()) { "Scan the music library before restoring playlists and favorites." }
+                val byUri = tracks.associateBy { it.uri.toString() }
+                val byMetadata = tracks.groupBy(::trackFingerprint)
+                fun resolve(ref: BackupTrackRef): AudioTrack? = byUri[ref.uri] ?: byMetadata[backupFingerprint(ref)]?.firstOrNull()
+                val resolvedPlaylists = snapshot.playlists.map { playlist -> playlist.name to playlist.tracks.mapNotNull { resolve(it)?.uri } }
+                val resolvedFavorites = snapshot.favorites.mapNotNull { resolve(it)?.uri }
+                val totalTrackRefs = snapshot.playlists.sumOf { it.tracks.size } + snapshot.favorites.size
+                val resolvedTrackRefs = resolvedPlaylists.sumOf { it.second.size } + resolvedFavorites.size
+                playlistStore.restoreBackupSnapshot(snapshot, resolvedPlaylists, resolvedFavorites)
+                val saved = playlistStore.loadSettings()
+                val current = _state.value
+                val sortOrder = saved[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: "Title"
+                val hideShortTracks = saved[SETTING_HIDE_SHORT_TRACKS]?.toBooleanStrictOrNull() ?: false
+                val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
+                _state.value = current.copy(
+                    sortOrder = sortOrder,
+                    hideShortTracks = hideShortTracks,
+                    lyricsTreeUri = saved[SETTING_LYRICS_TREE],
+                    hiddenFolderPaths = hiddenFolderPaths,
+                    visibleTracks = filterTracks(current.tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }, current.searchQuery, sortOrder, hideShortTracks),
+                    actionMessage = "Backup restored. ${totalTrackRefs - resolvedTrackRefs} track(s) were not found.",
+                )
+                onSettingsRestored(saved)
+                refreshPlaylists()
+            }
+                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not restore backup.") }
+        }
+    }
+
+    private fun trackFingerprint(track: AudioTrack): String = listOf(
+        track.title.trim().lowercase(), normalizeArtistName(track.artist),
+        track.album.trim().lowercase(), (track.durationMs / 1000L).toString(),
+    ).joinToString("|")
+
+    private fun backupFingerprint(track: BackupTrackRef): String = listOf(
+        track.title.trim().lowercase(), normalizeArtistName(track.artist), track.album.trim().lowercase(),
+        (track.durationMs / 1000L).toString(),
+    ).joinToString("|")
 
     fun setFavorite(track: AudioTrack, favorite: Boolean) {
         viewModelScope.launch {
@@ -467,6 +589,12 @@ class LibraryViewModel(
             "Duration" -> filtered.sortedWith(compareBy<AudioTrack> { it.durationMs }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
             else -> filtered.sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.title })
         }
+    }
+    private companion object {
+        const val SETTING_SORT_ORDER = "sortOrder"
+        const val SETTING_HIDE_SHORT_TRACKS = "hideShortTracks"
+        const val SETTING_LYRICS_TREE = "lyricsTreeUri"
+        val SORT_ORDERS = setOf("Title", "Artist", "Date added", "Duration")
     }
     class Factory(
         private val repository: AudioLibraryRepository,

@@ -1,5 +1,6 @@
 package com.dizzyvy.sjmusicapp.ui.player
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -22,12 +23,15 @@ import androidx.compose.ui.unit.sp
 import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
 import com.dizzyvy.sjmusicapp.music.library.DevicePlaylist
 import com.dizzyvy.sjmusicapp.music.model.AudioTrack
+import com.dizzyvy.sjmusicapp.music.lyrics.LocalLyrics
+import com.dizzyvy.sjmusicapp.music.lyrics.LocalLyricsRepository
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackSnapshot
 import com.dizzyvy.sjmusicapp.ui.components.AlbumArtwork
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun NowPlayingScreen(
     playback: PlaybackSnapshot,
     artworkRepository: ArtworkRepository,
@@ -50,6 +54,9 @@ fun NowPlayingScreen(
     onFavorite: (AudioTrack, Boolean) -> Unit,
     onSetSleepTimer: (Long?, Boolean) -> Unit,
     onPlaybackSpeed: (Float) -> Unit,
+    lyricsRepository: LocalLyricsRepository,
+    lyricsDirectoryUri: Uri?,
+    onChooseLyricsDirectory: () -> Unit,
 ) {
     val track = playback.currentTrack
     val scrollState = rememberScrollState()
@@ -73,6 +80,21 @@ fun NowPlayingScreen(
             }
         }
         return
+    }
+
+    var lyrics by remember(track.uri, lyricsDirectoryUri) { mutableStateOf<LocalLyrics?>(null) }
+    var loadingLyrics by remember(track.uri, lyricsDirectoryUri) { mutableStateOf(false) }
+    var lyricsError by remember(track.uri, lyricsDirectoryUri) { mutableStateOf(false) }
+    LaunchedEffect(track.uri, lyricsDirectoryUri) {
+        lyrics = null
+        lyricsError = false
+        loadingLyrics = lyricsDirectoryUri != null
+        if (lyricsDirectoryUri != null) {
+            runCatching { lyricsRepository.load(track, lyricsDirectoryUri) }
+                .onSuccess { lyrics = it }
+                .onFailure { lyricsError = true }
+            loadingLyrics = false
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -124,6 +146,33 @@ fun NowPlayingScreen(
                 playback.sleepTimerRemainingMs != null -> "Sleep timer · ${((playback.sleepTimerRemainingMs + 59_999L) / 60_000L)} min"
                 else -> "Sleep timer"
             })
+        }
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("LYRICS", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onChooseLyricsDirectory) { Text(if (lyricsDirectoryUri == null) "Choose music folder" else "Change folder") }
+        }
+        when {
+            lyricsDirectoryUri == null -> Text("Choose the folder containing your music and lyric files.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            loadingLyrics -> LinearProgressIndicator(Modifier.fillMaxWidth())
+            lyricsError -> Text("Could not read lyrics from that folder.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            lyrics?.timedLines?.isNotEmpty() == true -> {
+                val lines = lyrics!!.timedLines
+                val active = lines.indexOfLast { it.timeMs <= playback.positionMs }.coerceAtLeast(0)
+                val first = (active - 2).coerceAtLeast(0)
+                val last = (active + 2).coerceAtMost(lines.lastIndex)
+                (first..last).forEach { index ->
+                    Text(
+                        lines[index].text,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                        textAlign = TextAlign.Center,
+                        style = if (index == active) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                        color = if (index == active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            !lyrics?.plainText.isNullOrBlank() -> Text(lyrics!!.plainText, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, maxLines = 12, overflow = TextOverflow.Ellipsis)
+            else -> Text("No lyrics found for this song.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         ClickWheel(playing = playback.isPlaying, queueOpen = queueOpen, onMenu = onBack, onPrevious = onPrevious, onTogglePlayback = onPlayPause, onNext = onNext, onSelect = { queueOpen = !queueOpen }, onRotate = { delta ->
             if (queueOpen) scope.launch { scrollState.scrollTo((scrollState.value + (delta * 2400).roundToInt()).coerceIn(0, scrollState.maxValue)) }

@@ -49,6 +49,7 @@ import com.dizzyvy.sjmusicapp.ui.components.AlbumArtwork
 import kotlinx.coroutines.launch
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun LibraryScreen(
     state: LibraryUiState,
     playback: PlaybackSnapshot,
@@ -78,6 +79,8 @@ fun LibraryScreen(
     onDeletePlaylist: (DevicePlaylist) -> Unit,
     onImportM3u: () -> Unit,
     onExportM3u: (DevicePlaylist) -> Unit,
+    onImportBackup: () -> Unit,
+    onExportBackup: () -> Unit,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
     onAddTracksToPlaylist: (DevicePlaylist, List<AudioTrack>) -> Unit,
     onPlayPlaylist: (Boolean) -> Unit,
@@ -150,6 +153,8 @@ fun LibraryScreen(
                 if (state.category == "Playlists") {
                     TextButton(onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
                     TextButton(onClick = onImportM3u) { Text("Import") }
+                    TextButton(onClick = onImportBackup) { Text("Restore") }
+                    TextButton(onClick = onExportBackup) { Text("Backup") }
                 }
             }
             if (selectedTracks.isNotEmpty()) {
@@ -187,6 +192,16 @@ fun LibraryScreen(
                     }
                     if (state.visibleTracks.isNotEmpty()) TextButton(onClick = onShuffleAll, modifier = Modifier.fillMaxWidth()) { Text("Shuffle all") }
                 }
+            }
+        }
+        if (state.isLoading && state.scanTotal != null) {
+            val total = state.scanTotal.coerceAtLeast(state.scanProcessed)
+            Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp)) {
+                LinearProgressIndicator(
+                    progress = if (total > 0) (state.scanProcessed.toFloat() / total).coerceIn(0f, 1f) else 0f,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Scanning music · ${state.scanProcessed} of $total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         when {
@@ -639,6 +654,11 @@ private fun formatAudioSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> "${"%.1f".format(bytes / (1024.0 * 1024.0))} MB"
+}
+
+private fun formatTime(milliseconds: Long): String {
+    val totalSeconds = (milliseconds / 1000).coerceAtLeast(0)
+    return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
 @Composable

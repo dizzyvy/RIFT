@@ -5,10 +5,15 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.net.Uri
+import org.json.JSONObject
+import com.dizzyvy.sjmusicapp.music.model.AudioTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 data class TrackPlayHistory(val playCount: Int, val lastPlayedAtMs: Long)
+data class BackupTrackRef(val uri: String, val title: String, val artist: String, val album: String, val durationMs: Long)
+data class BackupPlaylist(val name: String, val tracks: List<BackupTrackRef>)
+data class LibraryBackupSnapshot(val playlists: List<BackupPlaylist>, val favorites: List<BackupTrackRef>, val settings: Map<String, String>)
 
 interface PlaylistStore {
     suspend fun loadPlaylists(): List<DevicePlaylist>
@@ -25,6 +30,14 @@ interface PlaylistStore {
     suspend fun loadPlayHistory(): Map<String, TrackPlayHistory>
     suspend fun loadHiddenFolderPaths(): Set<String>
     suspend fun setFolderHidden(path: String, hidden: Boolean)
+    suspend fun loadCachedTracks(): List<AudioTrack>
+    suspend fun beginTrackCacheRefresh(): String
+    suspend fun cacheTracks(generation: String, tracks: List<AudioTrack>)
+    suspend fun finishTrackCacheRefresh(generation: String)
+    suspend fun loadSettings(): Map<String, String>
+    suspend fun saveSettings(settings: Map<String, String>)
+    suspend fun createBackupSnapshot(tracks: List<AudioTrack>): LibraryBackupSnapshot
+    suspend fun restoreBackupSnapshot(snapshot: LibraryBackupSnapshot, resolvedPlaylists: List<Pair<String, List<Uri>>>, resolvedFavorites: List<Uri>)
 }
 
 class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION), PlaylistStore {
@@ -35,12 +48,114 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         db.execSQL("CREATE TABLE favorites (uri TEXT PRIMARY KEY NOT NULL)")
         db.execSQL("CREATE TABLE track_history (uri TEXT PRIMARY KEY NOT NULL, play_count INTEGER NOT NULL, last_played_ms INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE hidden_folders (path TEXT PRIMARY KEY NOT NULL)")
+        db.execSQL("CREATE TABLE track_cache (uri TEXT PRIMARY KEY NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX track_cache_generation ON track_cache(generation)")
+        db.execSQL("CREATE TABLE app_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("CREATE TABLE favorites (uri TEXT PRIMARY KEY NOT NULL)")
         if (oldVersion < 3) db.execSQL("CREATE TABLE track_history (uri TEXT PRIMARY KEY NOT NULL, play_count INTEGER NOT NULL, last_played_ms INTEGER NOT NULL)")
         if (oldVersion < 4) db.execSQL("CREATE TABLE hidden_folders (path TEXT PRIMARY KEY NOT NULL)")
+        if (oldVersion < 5) {
+            db.execSQL("CREATE TABLE track_cache (uri TEXT PRIMARY KEY NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL)")
+            db.execSQL("CREATE INDEX track_cache_generation ON track_cache(generation)")
+        }
+        if (oldVersion < 6) db.execSQL("CREATE TABLE app_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+    }
+
+    override suspend fun loadCachedTracks(): List<AudioTrack> = withContext(Dispatchers.IO) {
+        readableDatabase.query("track_cache", arrayOf("payload"), null, null, null, null, "payload COLLATE NOCASE").use { cursor ->
+            buildList { while (cursor.moveToNext()) runCatching { add(trackFromJson(JSONObject(cursor.getString(0)))) } }
+        }
+    }
+
+    override suspend fun beginTrackCacheRefresh(): String = java.util.UUID.randomUUID().toString()
+
+    override suspend fun cacheTracks(generation: String, tracks: List<AudioTrack>) = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        tracks.chunked(CACHE_BATCH_SIZE).forEach { batch ->
+            db.beginTransaction()
+            try {
+                batch.forEach { track ->
+                    db.insertWithOnConflict("track_cache", null, ContentValues().apply {
+                        put("uri", track.uri.toString())
+                        put("generation", generation)
+                        put("payload", track.toCacheJson().toString())
+                    }, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+        }
+    }
+
+    override suspend fun finishTrackCacheRefresh(generation: String) = withContext(Dispatchers.IO) {
+        writableDatabase.delete("track_cache", "generation != ?", arrayOf(generation))
+        Unit
+    }
+
+    override suspend fun loadSettings(): Map<String, String> = withContext(Dispatchers.IO) {
+        readableDatabase.query("app_settings", arrayOf("key", "value"), null, null, null, null, null).use { cursor ->
+            buildMap { while (cursor.moveToNext()) put(cursor.getString(0), cursor.getString(1)) }
+        }
+    }
+
+    override suspend fun saveSettings(settings: Map<String, String>) = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            settings.forEach { (key, value) -> db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", key); put("value", value) }, SQLiteDatabase.CONFLICT_REPLACE) }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    override suspend fun createBackupSnapshot(tracks: List<AudioTrack>): LibraryBackupSnapshot = withContext(Dispatchers.IO) {
+        val byUri = tracks.associateBy { it.uri.toString() }
+        val playlists = readableDatabase.query("playlists", arrayOf("_id", "name"), null, null, null, null, "name COLLATE NOCASE ASC").use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    val name = cursor.getString(1)
+                    val uris = readableDatabase.query("playlist_tracks", arrayOf("uri"), "playlist_id = ?", arrayOf(id.toString()), null, null, "position ASC").use { entries ->
+                        buildList { while (entries.moveToNext()) add(entries.getString(0)) }
+                    }
+                    add(BackupPlaylist(name, uris.map { uri -> byUri[uri]?.let(::backupRef) ?: BackupTrackRef(uri, "", "", "", 0L) }))
+                }
+            }
+        }
+        val favorites = loadFavoriteUris().map { uri -> byUri[uri.toString()]?.let(::backupRef) ?: BackupTrackRef(uri.toString(), "", "", "", 0L) }
+        val settings = loadSettings().filterKeys { it != SETTING_LYRICS_TREE }.toMutableMap().apply {
+            put(SETTING_HIDDEN_FOLDERS, org.json.JSONArray(loadHiddenFolderPaths().sorted()).toString())
+        }
+        LibraryBackupSnapshot(playlists, favorites, settings)
+    }
+
+    override suspend fun restoreBackupSnapshot(snapshot: LibraryBackupSnapshot, resolvedPlaylists: List<Pair<String, List<Uri>>>, resolvedFavorites: List<Uri>) = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val localLyricsTree = db.query("app_settings", arrayOf("value"), "key = ?", arrayOf(SETTING_LYRICS_TREE), null, null, null).use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+            db.delete("playlist_tracks", null, null)
+            db.delete("playlists", null, null)
+            db.delete("favorites", null, null)
+            db.delete("app_settings", null, null)
+            db.delete("hidden_folders", null, null)
+            resolvedPlaylists.forEach { (name, tracks) ->
+                val id = db.insertOrThrow("playlists", null, ContentValues().apply { put("name", name) })
+                tracks.forEachIndexed { index, uri -> db.insertWithOnConflict("playlist_tracks", null, ContentValues().apply { put("playlist_id", id); put("uri", uri.toString()); put("position", index) }, SQLiteDatabase.CONFLICT_IGNORE) }
+            }
+            resolvedFavorites.forEach { uri -> db.insertWithOnConflict("favorites", null, ContentValues().apply { put("uri", uri.toString()) }, SQLiteDatabase.CONFLICT_IGNORE) }
+            snapshot.settings.forEach { (key, value) -> db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", key); put("value", value) }, SQLiteDatabase.CONFLICT_REPLACE) }
+            if (localLyricsTree != null) db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", SETTING_LYRICS_TREE); put("value", localLyricsTree) }, SQLiteDatabase.CONFLICT_REPLACE)
+            val hiddenFolders = org.json.JSONArray(snapshot.settings[SETTING_HIDDEN_FOLDERS] ?: "[]")
+            for (index in 0 until hiddenFolders.length()) {
+                val path = hiddenFolders.optString(index).trim().trimEnd('/')
+                if (path.isNotEmpty()) db.insertWithOnConflict("hidden_folders", null, ContentValues().apply { put("path", path) }, SQLiteDatabase.CONFLICT_IGNORE)
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
     }
 
     override suspend fun loadPlaylists(): List<DevicePlaylist> = withContext(Dispatchers.IO) {
@@ -223,7 +338,10 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 
     private companion object {
         const val DATABASE_NAME = "sj_music_library.db"
-        const val DATABASE_VERSION = 4
+        const val DATABASE_VERSION = 6
+        const val CACHE_BATCH_SIZE = 200
+        const val SETTING_HIDDEN_FOLDERS = "hiddenFolders"
+        const val SETTING_LYRICS_TREE = "lyricsTreeUri"
         const val LOCAL_VOLUME = "app"
         const val FAVORITES_PLAYLIST_ID = -1L
         const val RECENTLY_ADDED_ID = -2L
@@ -233,3 +351,22 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         val AUTO_PLAYLIST_NAMES = setOf("favorites", "recently added", "recently played", "most played", "never played")
     }
 }
+
+private fun backupRef(track: AudioTrack) = BackupTrackRef(track.uri.toString(), track.title, track.artist, track.album, track.durationMs)
+
+private fun AudioTrack.toCacheJson() = JSONObject()
+    .put("id", id).put("uri", uri.toString()).put("title", title).put("displayName", displayName)
+    .put("artist", artist).put("albumArtist", albumArtist).put("album", album).put("durationMs", durationMs)
+    .put("dateAddedSeconds", dateAddedSeconds).put("sizeBytes", sizeBytes).put("mimeType", mimeType)
+    .put("bitrate", bitrate).put("sampleRateHz", sampleRateHz).put("filePath", filePath).put("relativePath", relativePath)
+    .put("genre", genre).put("year", year).put("artistId", artistId).put("albumId", albumId).put("volumeName", volumeName)
+
+private fun trackFromJson(json: JSONObject) = AudioTrack(
+    id = json.optLong("id", -1L), uri = Uri.parse(json.getString("uri")), title = json.optString("title"),
+    displayName = json.optString("displayName"), artist = json.optString("artist"), albumArtist = json.optString("albumArtist"),
+    album = json.optString("album"), durationMs = json.optLong("durationMs"), dateAddedSeconds = json.optLong("dateAddedSeconds"),
+    sizeBytes = json.optLong("sizeBytes"), mimeType = json.optString("mimeType"), bitrate = json.optInt("bitrate", -1),
+    sampleRateHz = json.optInt("sampleRateHz", -1), filePath = json.optString("filePath"), relativePath = json.optString("relativePath"),
+    genre = json.optString("genre"), year = json.optInt("year"), artistId = json.optLong("artistId", -1L),
+    albumId = json.optLong("albumId", -1L), volumeName = json.optString("volumeName", "external"),
+)

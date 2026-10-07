@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import android.provider.OpenableColumns
+import android.net.Uri
 import android.app.Activity
 import android.app.RecoverableSecurityException
 import androidx.activity.result.IntentSenderRequest
@@ -27,12 +28,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dizzyvy.sjmusicapp.music.library.AudioLibraryRepository
 import com.dizzyvy.sjmusicapp.music.library.PlaylistStore
 import com.dizzyvy.sjmusicapp.music.artwork.ArtworkRepository
+import com.dizzyvy.sjmusicapp.music.lyrics.LocalLyricsRepository
 import com.dizzyvy.sjmusicapp.music.playback.PlaybackController
 import com.dizzyvy.sjmusicapp.ui.library.LibraryScreen
 import com.dizzyvy.sjmusicapp.ui.library.LibraryViewModel
 import com.dizzyvy.sjmusicapp.ui.player.NowPlayingScreen
 import com.dizzyvy.sjmusicapp.ui.theme.SJMusicTheme
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -57,6 +60,7 @@ fun SJMusicApp(
     val context = LocalContext.current
     val refreshScope = rememberCoroutineScope()
     var pendingExportText by remember { mutableStateOf("") }
+    var pendingBackupText by remember { mutableStateOf("") }
     var pendingDeleteUri by remember { mutableStateOf<Uri?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
         if (uri != null) runCatching {
@@ -81,6 +85,45 @@ fun SJMusicApp(
             } ?: "Imported playlist.m3u"
             libraryViewModel.importM3u(name, contents)
         }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not read the playlist file.") }
+    }
+    val backupExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) refreshScope.launch(Dispatchers.IO) {
+            runCatching {
+                val output = requireNotNull(context.contentResolver.openOutputStream(uri))
+                output.bufferedWriter(Charsets.UTF_8).use { it.write(pendingBackupText) }
+            }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not write the backup file.") }
+        }
+    }
+    val backupImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) refreshScope.launch(Dispatchers.IO) {
+            runCatching {
+                val contents = requireNotNull(context.contentResolver.openInputStream(uri)).bufferedReader(Charsets.UTF_8).use { reader ->
+                    val output = StringBuilder()
+                    val buffer = CharArray(8192)
+                    while (output.length <= 16 * 1024 * 1024) {
+                        val count = reader.read(buffer)
+                        if (count < 0) break
+                        output.append(buffer, 0, count)
+                    }
+                    require(output.length <= 16 * 1024 * 1024) { "Backup file is too large." }
+                    output.toString()
+                }
+                libraryViewModel.importBackup(contents) { settings ->
+                    settings["themeMode"]?.let(onThemeModeChange)
+                    settings["accentName"]?.let(onAccentChange)
+                }
+            }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not read the backup file.") }
+        }
+    }
+    val lyricsDirectoryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            libraryViewModel.setLyricsDirectory(uri)
+        }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not access that lyrics folder.") }
+    }
+
+    LaunchedEffect(themeMode, accentName) {
+        libraryViewModel.saveAppSettings(mapOf("themeMode" to themeMode, "accentName" to accentName))
     }
 
 
@@ -140,6 +183,9 @@ fun SJMusicApp(
                 onFavorite = libraryViewModel::setFavorite,
                 onSetSleepTimer = playbackController::setSleepTimer,
                 onPlaybackSpeed = playbackController::setPlaybackSpeed,
+                lyricsRepository = remember(context) { LocalLyricsRepository(context) },
+                lyricsDirectoryUri = libraryState.lyricsTreeUri?.let(Uri::parse),
+                onChooseLyricsDirectory = { lyricsDirectoryLauncher.launch(null) },
             )
         } else {
             LibraryScreen(
@@ -158,6 +204,9 @@ fun SJMusicApp(
                 },
                 onOpenPlayer = { showPlayer = true },
                 onPlayPause = playbackController::playPause,
+                onShuffleAll = libraryViewModel::shuffleAll,
+                onPreviousTrack = playbackController::skipPrevious,
+                onNextTrack = playbackController::skipNext,
                 onAddToQueue = playbackController::addQueueItem,
                 onPlayNext = playbackController::playNext,
                 onDeleteTrack = { track ->
@@ -193,6 +242,8 @@ fun SJMusicApp(
                 onDeletePlaylist = libraryViewModel::deletePlaylist,
                 onImportM3u = { importLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain")) },
                 onExportM3u = { playlist -> libraryViewModel.exportM3u(playlist) { contents -> pendingExportText = contents; exportLauncher.launch(playlist.name + ".m3u") } },
+                onImportBackup = { backupImportLauncher.launch(arrayOf("application/json", "text/plain")) },
+                onExportBackup = { libraryViewModel.exportBackup { contents -> pendingBackupText = contents; backupExportLauncher.launch("SJ-Music-Backup.json") } },
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
                 onAddTracksToPlaylist = libraryViewModel::addTracksToPlaylist,
                 onPlayPlaylist = libraryViewModel::playPlaylist,

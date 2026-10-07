@@ -14,18 +14,21 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
 
-    override suspend fun loadTracks(): List<AudioTrack> = withContext(Dispatchers.IO) {
-        queryAllTracks()
+    override suspend fun loadTracks(): List<AudioTrack> = withContext(Dispatchers.IO) { queryAllTracks().tracks }
+
+    override suspend fun scanTracks(onProgress: (processed: Int, total: Int) -> Unit): LibraryScanResult = withContext(Dispatchers.IO) {
+        val result = queryAllTracks(onProgress)
+        LibraryScanResult(result.tracks, result.complete)
     }
 
     override suspend fun loadArtists(): List<ArtistBrowseItem> = withContext(Dispatchers.IO) {
-        queryAllTracks().groupBy(::artistGroupKey)
+        queryAllTracks().tracks.groupBy(::artistGroupKey)
             .map { (id, tracks) -> ArtistBrowseItem(id, tracks.first().artist.ifBlank { "Unknown artist" }, tracks.size) }
             .sortedWith(browseComparator { it.name })
     }
 
     override suspend fun loadAlbums(): List<AlbumBrowseItem> = withContext(Dispatchers.IO) {
-        queryAllTracks().groupBy(::albumGroupKey)
+        queryAllTracks().tracks.groupBy(::albumGroupKey)
             .map { (id, tracks) -> AlbumBrowseItem(id, tracks.first().album.ifBlank { "Unknown album" }, tracks.first().artist, tracks.size) }
             .sortedWith(browseComparator { it.title })
     }
@@ -51,13 +54,15 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Playlists.Members.AUDIO_ID)
                 val ids = buildList { while (cursor.moveToNext()) add(cursor.getLong(idColumn)) }
                 val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(playlist.volumeName) else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                val tracksById = queryCollection(collection).associateBy { it.id }
+                val tracksById = queryCollection(collection).tracks.associateBy { it.id }
                 ids.mapNotNull(tracksById::get)
             }.orEmpty()
         }.getOrElse { Log.w(TAG, "Could not read playlist ${playlist.name}", it); emptyList() }
     }
 
-    private fun queryAllTracks(): List<AudioTrack> {
+    private data class QueryOutcome(val tracks: List<AudioTrack>, val complete: Boolean, val scannedRows: Int)
+
+    private fun queryAllTracks(onProgress: ((processed: Int, total: Int) -> Unit)? = null): QueryOutcome {
         val collections = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.getExternalVolumeNames(appContext).sorted().map { volumeName ->
                 MediaStore.Audio.Media.getContentUri(volumeName)
@@ -66,13 +71,26 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             listOf(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
         }
 
-        return collections
-            .flatMap(::queryCollection)
-            .distinctBy { it.uri }
-            .sortedWith(browseComparator { it.title })
+        val tracks = mutableListOf<AudioTrack>()
+        var complete = true
+        var processed = 0
+        var total = 0
+        collections.forEach { collection ->
+            val outcome = queryCollection(collection, onProgress, processed, total)
+            tracks += outcome.tracks
+            processed += outcome.scannedRows
+            total = maxOf(total, processed)
+            complete = complete && outcome.complete
+        }
+        return QueryOutcome(tracks.distinctBy { it.uri }.sortedWith(browseComparator { it.title }), complete, processed)
     }
 
-    private fun queryCollection(collection: android.net.Uri): List<AudioTrack> {
+    private fun queryCollection(
+        collection: android.net.Uri,
+        onProgress: ((processed: Int, total: Int) -> Unit)? = null,
+        processedBefore: Int = 0,
+        totalBefore: Int = 0,
+    ): QueryOutcome {
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.DISPLAY_NAME,
@@ -90,13 +108,16 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
         ) + (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST, MediaStore.Audio.Media.BITRATE, MediaStore.Audio.Media.SAMPLERATE, MediaStore.Audio.Media.GENRE) else emptyArray()) + (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) arrayOf(MediaStore.Audio.Media.RELATIVE_PATH) else emptyArray())
 
         return try {
-            resolver.query(
+            val cursor = resolver.query(
                 collection,
                 projection,
                 "${MediaStore.Audio.Media.IS_MUSIC} != 0",
                 null,
                 "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
-            )?.use { cursor ->
+            ) ?: return QueryOutcome(emptyList(), complete = false, scannedRows = 0)
+            cursor.use {
+                val count = cursor.count
+                onProgress?.invoke(processedBefore, totalBefore + count)
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -116,7 +137,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val artistIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST_ID)
                 val albumIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
 
-                buildList {
+                val tracks = buildList {
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idColumn)
                         val displayName = cursor.getString(displayNameColumn).orEmpty()
@@ -149,18 +170,20 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 volumeName = collection.pathSegments.firstOrNull() ?: "external",
                             ),
                         )
+                        if (cursor.position % 32 == 0 || cursor.isLast) onProgress?.invoke(processedBefore + cursor.position + 1, totalBefore + count)
                     }
                 }
-            }.orEmpty()
+                QueryOutcome(tracks, complete = true, scannedRows = count)
+            }
         } catch (exception: IllegalArgumentException) {
             Log.w(TAG, "A media volume became unavailable during the library scan", exception)
-            emptyList()
+            QueryOutcome(emptyList(), complete = false, scannedRows = 0)
         } catch (exception: SQLiteException) {
             Log.w(TAG, "A media volume could not be queried during the library scan", exception)
-            emptyList()
+            QueryOutcome(emptyList(), complete = false, scannedRows = 0)
         } catch (exception: SecurityException) {
             Log.w(TAG, "A media volume was not accessible during the library scan", exception)
-            emptyList()
+            QueryOutcome(emptyList(), complete = false, scannedRows = 0)
         }
     }
 
