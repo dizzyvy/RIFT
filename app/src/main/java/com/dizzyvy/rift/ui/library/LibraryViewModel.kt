@@ -34,7 +34,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import android.os.SystemClock
 
 private fun folderPath(track: AudioTrack): String = track.relativePath.trimEnd('/').ifBlank {
     track.filePath.substringBeforeLast('/', "")
@@ -46,6 +45,21 @@ private fun folderIsHidden(track: AudioTrack, hiddenFolderPaths: Set<String>): B
         path.equals(hidden, ignoreCase = true) || path.startsWith("$hidden/", ignoreCase = true)
     }
 }
+
+private fun buildFolderItems(tracks: List<AudioTrack>): List<LibraryCollectionItem> = tracks
+    .mapNotNull { track -> folderPath(track).takeIf(String::isNotBlank)?.let { it to track } }
+    .groupBy({ it.first }, { it.second })
+    .map { (path, items) -> LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size) }
+    .sortedWith(compareBy<LibraryCollectionItem, String>(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.id })
+
+private fun buildHiddenFolderItems(tracks: List<AudioTrack>, hiddenPaths: Set<String>): List<LibraryCollectionItem> =
+    hiddenPaths.map { path ->
+        val matchingTracks = tracks.filter { track ->
+            val trackPath = folderPath(track)
+            trackPath.equals(path, ignoreCase = true) || trackPath.startsWith("$path/", ignoreCase = true)
+        }
+        LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, matchingTracks.size)
+    }.sortedWith(compareBy<LibraryCollectionItem, String>(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.id })
 
 private fun buildArtists(tracks: List<AudioTrack>, aliases: Map<String, String> = emptyMap()): List<ArtistBrowseItem> = tracks
     .flatMap { track -> artistNamesForTrack(track, aliases).map { it to track } }
@@ -72,16 +86,88 @@ private fun buildYears(tracks: List<AudioTrack>): List<LibraryCollectionItem> = 
     .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
     .sortedWith(compareBy<LibraryCollectionItem> { it.title == "Unknown" }.thenByDescending { it.title.toIntOrNull() ?: 0 })
 
-private fun buildDuplicateTracks(tracks: List<AudioTrack>, aliases: Map<String, String>, notDuplicatePairs: Set<String>): List<AudioTrack> = tracks.groupBy { track ->
-    "${track.title.trim().lowercase()}|${normalizeArtistName(artistNamesForTrack(track, aliases).first())}|${track.durationMs / 1000L}"
-}.filterValues { group ->
-    group.size > 1 && group.indices.any { first ->
-        (first + 1 until group.size).any { second ->
-            duplicatePairKey(group[first].uri.toString(), group[second].uri.toString()) !in notDuplicatePairs
+data class DuplicateGroup(val id: String, val tracks: List<AudioTrack>, val reason: String)
+
+private fun buildDuplicateGroups(
+    tracks: List<AudioTrack>,
+    aliases: Map<String, String>,
+    notDuplicatePairs: Set<String>,
+): List<DuplicateGroup> {
+    val matches = mutableListOf<Triple<AudioTrack, AudioTrack, String>>()
+    val candidates = tracks.groupBy { track ->
+        val compactTitle = track.title.lowercase().filter(Char::isLetterOrDigit)
+        normalizeArtistName(artistNamesForTrack(track, aliases).first()) to compactTitle
+    }
+    candidates.values.forEach { candidatesInBucket ->
+        for (firstIndex in candidatesInBucket.indices) {
+            val first = candidatesInBucket[firstIndex]
+            for (secondIndex in firstIndex + 1 until candidatesInBucket.size) {
+                val second = candidatesInBucket[secondIndex]
+                val durationMatches = first.durationMs > 0L && second.durationMs > 0L &&
+                    kotlin.math.abs(first.durationMs - second.durationMs) <= 1_000L
+                if (!durationMatches) continue
+                val exactTitle = first.title.trim().replace(Regex("\\s+"), " ")
+                    .equals(second.title.trim().replace(Regex("\\s+"), " "), ignoreCase = true)
+                val sameFileSize = first.sizeBytes > 0L && first.sizeBytes == second.sizeBytes
+                val reason = when {
+                    exactTitle -> "Same title and artist; duration matches within 1 second"
+                    sameFileSize -> "Similar title and artist; duration and file size match"
+                    else -> null
+                } ?: continue
+                if (duplicatePairKey(first.uri.toString(), second.uri.toString()) !in notDuplicatePairs) {
+                    matches += Triple(first, second, reason)
+                }
+            }
         }
     }
-}.values.flatten().distinctBy { it.uri }
-    .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+
+    val adjacency = mutableMapOf<String, MutableSet<String>>()
+    val reasonsByPair = mutableMapOf<String, String>()
+    matches.forEach { (first, second, reason) ->
+        val firstUri = first.uri.toString()
+        val secondUri = second.uri.toString()
+        adjacency.getOrPut(firstUri) { mutableSetOf() }.add(secondUri)
+        adjacency.getOrPut(secondUri) { mutableSetOf() }.add(firstUri)
+        reasonsByPair[duplicatePairKey(firstUri, secondUri)] = reason
+    }
+    val tracksByUri = tracks.associateBy { it.uri.toString() }
+    val unvisited = adjacency.keys.toMutableSet()
+    return buildList {
+        while (unvisited.isNotEmpty()) {
+            val pending = ArrayDeque<String>()
+            val component = linkedSetOf<String>()
+            pending.add(unvisited.first())
+            while (pending.isNotEmpty()) {
+                val uri = pending.removeFirst()
+                if (!component.add(uri)) continue
+                unvisited.remove(uri)
+                adjacency[uri].orEmpty().forEach(pending::addLast)
+            }
+            val groupTracks = component.mapNotNull(tracksByUri::get)
+                .sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.filePath })
+            if (groupTracks.size < 2) continue
+            val reasons = groupTracks.indices.flatMap { firstIndex ->
+                (firstIndex + 1 until groupTracks.size).mapNotNull { secondIndex ->
+                    reasonsByPair[duplicatePairKey(groupTracks[firstIndex].uri.toString(), groupTracks[secondIndex].uri.toString())]
+                }
+            }.distinct()
+            add(
+                DuplicateGroup(
+                    id = component.sorted().joinToString("|"),
+                    tracks = groupTracks,
+                    reason = reasons.joinToString("; ").ifBlank { "Matching title, artist, and audio details" },
+                ),
+            )
+        }
+    }.sortedWith(compareBy<DuplicateGroup, String>(String.CASE_INSENSITIVE_ORDER) { it.tracks.first().title }.thenBy { it.id })
+}
+
+private fun filterDuplicateGroups(groups: List<DuplicateGroup>, query: String): List<DuplicateGroup> =
+    groups.filter { group ->
+        query.isBlank() || group.tracks.any { track ->
+            listOf(track.title, track.artist, track.album, track.filePath).any { it.contains(query, ignoreCase = true) }
+        }
+    }
 
 data class LibraryUiState(
     val tracks: List<AudioTrack> = emptyList(),
@@ -103,6 +189,7 @@ data class LibraryUiState(
     val browseTracks: List<AudioTrack>? = null,
     val activePlaylist: DevicePlaylist? = null,
     val actionMessage: String? = null,
+    val playlistImportReport: PlaylistImportReport? = null,
     val sortOrder: String = "Title",
     val hideShortTracks: Boolean = false,
     val clickWheelSensitivity: Float = 1f,
@@ -114,12 +201,21 @@ data class LibraryUiState(
     val artistAliases: Map<String, String> = emptyMap(),
     val folders: List<LibraryCollectionItem> = emptyList(),
     val visibleFolders: List<LibraryCollectionItem> = emptyList(),
+    val hiddenFolders: List<LibraryCollectionItem> = emptyList(),
+    val visibleHiddenFolders: List<LibraryCollectionItem> = emptyList(),
     val genres: List<LibraryCollectionItem> = emptyList(),
     val visibleGenres: List<LibraryCollectionItem> = emptyList(),
     val years: List<LibraryCollectionItem> = emptyList(),
     val visibleYears: List<LibraryCollectionItem> = emptyList(),
-    val duplicateTracks: List<AudioTrack> = emptyList(),
-    val visibleDuplicateTracks: List<AudioTrack> = emptyList(),
+    val duplicateGroups: List<DuplicateGroup> = emptyList(),
+    val visibleDuplicateGroups: List<DuplicateGroup> = emptyList(),
+)
+
+data class PlaylistImportReport(
+    val playlistName: String,
+    val matchedCount: Int,
+    val totalCount: Int,
+    val unmatchedEntries: List<String>,
 )
 
 class LibraryViewModel(
@@ -152,25 +248,29 @@ class LibraryViewModel(
         viewModelScope.launch {
         var currentUri: String? = null
         var listenedMs = 0L
-        var lastTickMs = 0L
+        var lastPositionMs = 0L
+        var wasPlaying = false
         var countedCurrentPlay = false
         playback.snapshot.collect { snapshot ->
             val track = snapshot.currentTrack
             val uri = track?.uri?.toString()
-            val now = SystemClock.elapsedRealtime()
             if (uri != currentUri) {
                 currentUri = uri
                 listenedMs = 0L
                 countedCurrentPlay = false
-                lastTickMs = if (snapshot.isPlaying && track != null) now else 0L
-            } else if (snapshot.isPlaying && track != null) {
-                if (lastTickMs != 0L) listenedMs += (now - lastTickMs).coerceIn(0L, 2_000L)
-                lastTickMs = now
+                lastPositionMs = snapshot.positionMs
             } else {
-                lastTickMs = 0L
+                val positionDelta = snapshot.positionMs - lastPositionMs
+                if (snapshot.isPlaying && wasPlaying && positionDelta in 0L..5_000L) {
+                    listenedMs += positionDelta
+                }
+                lastPositionMs = snapshot.positionMs
             }
+            wasPlaying = snapshot.isPlaying
             if (track == null || countedCurrentPlay) return@collect
-            val thresholdMs = track.durationMs.takeIf { it > 0L }
+            val knownDuration = _state.value.tracks.firstOrNull { it.uri == track.uri }?.durationMs
+                ?.takeIf { it > 0L } ?: track.durationMs
+            val thresholdMs = knownDuration.takeIf { it > 0L }
                 ?.let { minOf(30_000L, (it + 1L) / 2L) } ?: 30_000L
             if (listenedMs < thresholdMs) return@collect
             countedCurrentPlay = true
@@ -183,7 +283,13 @@ class LibraryViewModel(
                 val browseTracks = if (active?.isAuto == true && active.autoKind != "favorites") {
                     automaticPlaylistTracks(active, availableTracks(current), history)
                 } else current.browseTracks
-                _state.value = current.copy(playHistory = history, browseTracks = browseTracks)
+                val playlists = withPlaylistCounts(current.playlists, availableTracks(current), current.favoriteUris, history)
+                _state.value = current.copy(
+                    playHistory = history,
+                    browseTracks = browseTracks,
+                    playlists = playlists,
+                    visiblePlaylists = filterPlaylists(playlists, current.searchQuery),
+                )
             }
                 .onFailure { countedCurrentPlay = false; _state.value = _state.value.copy(actionMessage = it.message ?: "Could not save play history.") }
         }
@@ -211,11 +317,11 @@ class LibraryViewModel(
                     val cachedArtists = buildArtists(availableCachedTracks, artistAliases)
                     val cachedAlbums = buildAlbums(availableCachedTracks, artistAliases)
                     val cachedNotDuplicatePairs = playlistStore.loadNotDuplicatePairs()
-                    val cachedFolders = availableCachedTracks.mapNotNull { track -> folderPath(track).takeIf(String::isNotBlank)?.let { it to track } }
-                        .groupBy({ it.first }, { it.second }).map { (path, items) -> LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri) }
+                    val cachedFolders = buildFolderItems(availableCachedTracks)
+                    val cachedHiddenFolders = buildHiddenFolderItems(cachedTracks, cachedHidden)
                     val cachedGenres = buildGenres(availableCachedTracks)
                     val cachedYears = buildYears(availableCachedTracks)
-                    val cachedDuplicates = buildDuplicateTracks(availableCachedTracks, artistAliases, cachedNotDuplicatePairs)
+                    val cachedDuplicateGroups = buildDuplicateGroups(availableCachedTracks, artistAliases, cachedNotDuplicatePairs)
                     val cachedFavorites = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                     val cachedHistory = playlistStore.loadPlayHistory()
                     val cachedPlaylists = withPlaylistCounts(repository.loadPlaylists() + playlistStore.loadPlaylists(), availableCachedTracks, cachedFavorites, cachedHistory)
@@ -230,12 +336,14 @@ class LibraryViewModel(
                         hiddenFolderPaths = cachedHidden,
                         folders = cachedFolders,
                         visibleFolders = filterCollections(cachedFolders, current.searchQuery),
+                        hiddenFolders = cachedHiddenFolders,
+                        visibleHiddenFolders = filterCollections(cachedHiddenFolders, current.searchQuery),
                         genres = cachedGenres,
                         visibleGenres = filterCollections(cachedGenres, current.searchQuery),
                         years = cachedYears,
                         visibleYears = filterCollections(cachedYears, current.searchQuery),
-                        duplicateTracks = cachedDuplicates,
-                        visibleDuplicateTracks = filterTracks(cachedDuplicates, current.searchQuery, current.sortOrder, current.hideShortTracks),
+                        duplicateGroups = cachedDuplicateGroups,
+                        visibleDuplicateGroups = filterDuplicateGroups(cachedDuplicateGroups, current.searchQuery),
                         favoriteUris = cachedFavorites,
                         playHistory = cachedHistory,
                         playlists = cachedPlaylists,
@@ -269,14 +377,11 @@ class LibraryViewModel(
                 val notDuplicatePairs = playlistStore.loadNotDuplicatePairs()
                 val artists = buildArtists(availableTracks, resolvedAliases)
                 val albums = buildAlbums(availableTracks, resolvedAliases)
-                val folders = tracks.mapNotNull { track ->
-                    folderPath(track).takeIf(String::isNotBlank)?.let { it to track }
-                }.groupBy({ it.first }, { it.second }).map { (path, items) ->
-                    LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri)
-                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                val folders = buildFolderItems(availableTracks)
+                val hiddenFolders = buildHiddenFolderItems(tracks, hiddenFolderPaths)
                 val genres = buildGenres(availableTracks)
                 val years = buildYears(availableTracks)
-                val duplicateTracks = buildDuplicateTracks(availableTracks, resolvedAliases, notDuplicatePairs)
+                val duplicateGroups = buildDuplicateGroups(availableTracks, resolvedAliases, notDuplicatePairs)
                 _state.value = _state.value.copy(
                     tracks = tracks,
                     artistAliases = resolvedAliases,
@@ -291,12 +396,14 @@ class LibraryViewModel(
                     folders = folders,
                     hiddenFolderPaths = hiddenFolderPaths,
                     visibleFolders = filterCollections(folders, _state.value.searchQuery),
+                    hiddenFolders = hiddenFolders,
+                    visibleHiddenFolders = filterCollections(hiddenFolders, _state.value.searchQuery),
                     genres = genres,
                     visibleGenres = filterCollections(genres, _state.value.searchQuery),
                     years = years,
                     visibleYears = filterCollections(years, _state.value.searchQuery),
-                    duplicateTracks = duplicateTracks,
-                    visibleDuplicateTracks = filterTracks(duplicateTracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
+                    duplicateGroups = duplicateGroups,
+                    visibleDuplicateGroups = filterDuplicateGroups(duplicateGroups, _state.value.searchQuery),
                     visiblePlaylists = filterPlaylists(playlistsWithCounts, _state.value.searchQuery),
                     isLoading = false,
                     scanProcessed = if (scan.complete) tracks.size else _state.value.scanProcessed,
@@ -332,9 +439,10 @@ class LibraryViewModel(
             visibleAlbums = filterAlbums(current.albums, query),
             visiblePlaylists = filterPlaylists(current.playlists, query),
             visibleFolders = filterCollections(current.folders, query),
+            visibleHiddenFolders = filterCollections(current.hiddenFolders, query),
             visibleGenres = filterCollections(current.genres, query),
             visibleYears = filterCollections(current.years, query),
-            visibleDuplicateTracks = filterTracks(current.duplicateTracks, query, current.sortOrder, current.hideShortTracks),
+            visibleDuplicateGroups = filterDuplicateGroups(current.duplicateGroups, query),
         )
     }
 
@@ -349,12 +457,13 @@ class LibraryViewModel(
         }
     }
 
-    fun setFolderHidden(path: String, hidden: Boolean) {
+    fun setFolderHidden(path: String, hidden: Boolean, onComplete: () -> Unit = {}) {
         viewModelScope.launch {
             runCatching { playlistStore.setFolderHidden(path, hidden) }
                 .onSuccess {
                     if (_state.value.isLoading) refreshAfterCurrentLoad = true
                     else loadLibrary(hasAudioPermission = !_state.value.permissionRequired, forceRefresh = true)
+                    onComplete()
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update hidden folders.") }
         }
@@ -368,10 +477,10 @@ class LibraryViewModel(
             }.onSuccess { pairs ->
                 val current = _state.value
                 val tracks = availableTracks(current)
-                val duplicates = buildDuplicateTracks(tracks, current.artistAliases, pairs)
+                val duplicates = buildDuplicateGroups(tracks, current.artistAliases, pairs)
                 _state.value = current.copy(
-                    duplicateTracks = duplicates,
-                    visibleDuplicateTracks = filterTracks(duplicates, current.searchQuery, current.sortOrder, current.hideShortTracks),
+                    duplicateGroups = duplicates,
+                    visibleDuplicateGroups = filterDuplicateGroups(duplicates, current.searchQuery),
                 )
             }.onFailure {
                 _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update duplicate exclusions.")
@@ -584,15 +693,61 @@ class LibraryViewModel(
         _state.value = _state.value.copy(actionMessage = message)
     }
 
+    fun clearActionMessage() {
+        _state.value = _state.value.copy(actionMessage = null)
+    }
+
     fun importM3u(name: String, contents: String) {
-        val tracksByUri = _state.value.tracks.associateBy { it.uri.toString() }
-        val tracksByFileName = _state.value.tracks
+        val playlistName = name.substringBeforeLast('.', name).ifBlank { name }
+        val availableTracks = _state.value.tracks
+        val tracksByUri = availableTracks.associateBy { it.uri.toString() }
+        val tracksByFileName = availableTracks
             .filter { it.displayName.isNotBlank() }
             .associateBy { it.displayName.lowercase() }
-        val tracks = M3uPlaylistFormat.entries(contents).mapNotNull { entry ->
-            tracksByUri[entry] ?: tracksByFileName[M3uPlaylistFormat.fileName(entry).lowercase()]
-        }.distinctBy { it.uri }
-        createPlaylist(name.substringBeforeLast('.', name).ifBlank { name }, tracks)
+        var pendingDescription: String? = null
+        val entries = contents.lineSequence().mapNotNull { rawLine ->
+            val line = rawLine.trim()
+            when {
+                line.startsWith("#EXTINF:", ignoreCase = true) -> {
+                    pendingDescription = line.substringAfter(',', "").trim()
+                    null
+                }
+                line.isBlank() || line.startsWith("#") -> null
+                else -> line to pendingDescription.also { pendingDescription = null }
+            }
+        }.toList()
+        val matches = entries.map { (entry, description) ->
+            val uriMatch = tracksByUri[entry]
+            val fileNameMatch = tracksByFileName[M3uPlaylistFormat.fileName(entry).lowercase()]
+            val metadataMatch = description?.let {
+                val (artist, title) = it.split(" - ", limit = 2).let { parts ->
+                    if (parts.size == 2) parts[0].trim() to parts[1].trim() else "" to parts[0].trim()
+                }
+                availableTracks.firstOrNull { track ->
+                    track.title.equals(title, ignoreCase = true) &&
+                        (artist.isBlank() || track.artist.equals(artist, ignoreCase = true))
+                }
+            }
+            uriMatch ?: fileNameMatch ?: metadataMatch
+        }
+        val matchedTracks = matches.filterNotNull().distinctBy { it.uri }
+        val unmatchedEntries = entries.filterIndexed { index, _ -> matches[index] == null }.map { it.first }
+        viewModelScope.launch {
+            runCatching {
+                playlistStore.createPlaylist(playlistName).also { playlist ->
+                    matchedTracks.forEach { playlistStore.addTrack(playlist.id, it.uri) }
+                }
+            }.onSuccess {
+                refreshPlaylists()
+                _state.value = _state.value.copy(
+                    playlistImportReport = PlaylistImportReport(playlistName, matchedTracks.size, entries.size, unmatchedEntries),
+                )
+            }.onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not import playlist.") }
+        }
+    }
+
+    fun clearPlaylistImportReport() {
+        _state.value = _state.value.copy(playlistImportReport = null)
     }
 
     fun exportM3u(playlist: DevicePlaylist, onReady: (String) -> Unit) {
@@ -689,7 +844,14 @@ class LibraryViewModel(
         tracks: List<AudioTrack>,
         history: Map<String, TrackPlayHistory>,
     ): List<AudioTrack> = when (playlist.autoKind) {
-        "recently_added" -> tracks.sortedWith(compareByDescending<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        "recently_added" -> {
+            val cutoff = (System.currentTimeMillis() / 1_000L) - RECENTLY_ADDED_DAYS * SECONDS_PER_DAY
+            tracks.asSequence()
+                .filter { it.dateAddedSeconds >= cutoff }
+                .sortedWith(compareByDescending<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                .take(RECENTLY_ADDED_LIMIT)
+                .toList()
+        }
         "recently_played" -> tracks.filter { it.uri.toString() in history }
             .sortedByDescending { history[it.uri.toString()]?.lastPlayedAtMs ?: 0L }
         "most_played" -> tracks.filter { it.uri.toString() in history }
@@ -699,18 +861,27 @@ class LibraryViewModel(
         else -> emptyList()
     }
 
-    private fun withPlaylistCounts(
+    private suspend fun withPlaylistCounts(
         playlists: List<DevicePlaylist>,
         tracks: List<AudioTrack>,
         favorites: Set<String>,
         history: Map<String, TrackPlayHistory>,
-    ): List<DevicePlaylist> = playlists.map { playlist ->
-        val count = when {
-            playlist.autoKind == "favorites" -> favorites.size
-            playlist.autoKind != null -> automaticPlaylistTracks(playlist, tracks, history).size
-            else -> playlist.trackCount
+    ): List<DevicePlaylist> {
+        val tracksByUri = tracks.associateBy { it.uri }
+        return playlists.map { playlist ->
+            val playlistTracks = when {
+                playlist.autoKind == "favorites" -> tracks.filter { it.uri.toString() in favorites }
+                playlist.autoKind != null -> automaticPlaylistTracks(playlist, tracks, history)
+                playlist.isLocal -> playlistStore.loadTrackUris(playlist.id).mapNotNull(tracksByUri::get)
+                else -> repository.loadPlaylistTracks(playlist)
+            }
+            val count = when {
+                playlist.autoKind == "favorites" -> favorites.size
+                playlist.autoKind != null -> playlistTracks.size
+                else -> playlist.trackCount
+            }
+            playlist.copy(trackCount = count, artworkUris = playlistTracks.take(4).map { it.uri })
         }
-        playlist.copy(trackCount = count)
     }
 
     private suspend fun loadLocalTracks(playlistId: Long): List<AudioTrack> {
@@ -767,6 +938,9 @@ class LibraryViewModel(
         const val SETTING_WHEEL_HAPTICS = "clickWheelHaptics"
         const val SETTING_MEDIA_VERSION = "mediaStoreVersion"
         const val SETTING_LYRICS_TREE = "lyricsTreeUri"
+        const val RECENTLY_ADDED_DAYS = 30L
+        const val SECONDS_PER_DAY = 24L * 60L * 60L
+        const val RECENTLY_ADDED_LIMIT = 100
         val SORT_ORDERS = setOf("Title", "Artist", "Date added", "Duration")
     }
     class Factory(

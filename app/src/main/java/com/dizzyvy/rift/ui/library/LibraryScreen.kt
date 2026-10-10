@@ -2,6 +2,7 @@ package com.dizzyvy.rift.ui.library
 
 import android.content.Intent
 import android.media.RingtoneManager
+import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -9,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -29,6 +31,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import java.text.DateFormat
+import java.util.Date
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
 import com.dizzyvy.rift.music.library.AlbumBrowseItem
 import com.dizzyvy.rift.music.library.ArtistBrowseItem
@@ -86,6 +92,9 @@ fun LibraryScreen(
     onAddToQueue: (AudioTrack) -> Unit,
     onPlayNext: (List<AudioTrack>) -> Unit,
     onDeleteTrack: (AudioTrack) -> Unit,
+    onDeleteTracks: (List<AudioTrack>) -> Unit,
+    onNotDuplicate: (List<Uri>) -> Unit,
+    onClearActionMessage: () -> Unit,
     onOpenPlayer: () -> Unit,
     onPlayPause: () -> Unit,
     onShuffleAll: () -> Unit,
@@ -102,6 +111,7 @@ fun LibraryScreen(
     onRenamePlaylist: (DevicePlaylist, String) -> Unit,
     onDeletePlaylist: (DevicePlaylist) -> Unit,
     onImportM3u: () -> Unit,
+    onClearPlaylistImportReport: () -> Unit,
     onExportM3u: (DevicePlaylist) -> Unit,
     onImportBackup: () -> Unit,
     onExportBackup: () -> Unit,
@@ -115,10 +125,11 @@ fun LibraryScreen(
     accentName: String,
     onThemeModeChange: (String) -> Unit,
     onAccentChange: (String) -> Unit,
-    onToggleFolderHidden: (String, Boolean) -> Unit,
+    onToggleFolderHidden: (String, Boolean, () -> Unit) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     val nanoMode = themeMode.equals("nano", ignoreCase = true)
     val isScrolled = listState.firstVisibleItemIndex > 0
     var pendingTracks by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
@@ -130,11 +141,20 @@ fun LibraryScreen(
     var playlistToDelete by remember { mutableStateOf<DevicePlaylist?>(null) }
     var playlistNameInput by remember { mutableStateOf("") }
     var trackToDelete by remember { mutableStateOf<AudioTrack?>(null) }
+    var folderToHide by remember { mutableStateOf<String?>(null) }
+    var showingHiddenFolders by remember { mutableStateOf(false) }
+    var pendingDuplicateAction by remember { mutableStateOf<PendingDuplicateAction?>(null) }
     var artistToMerge by remember { mutableStateOf<ArtistBrowseItem?>(null) }
     var artistAliasInput by remember { mutableStateOf("") }
     val songs = state.browseTracks ?: state.visibleTracks
     val selectedTracks = state.tracks.filter { it.uri.toString() in selectedUris }
     LaunchedEffect(state.category, state.browseTitle) { selectedUris = emptySet() }
+    LaunchedEffect(state.category) { showingHiddenFolders = false }
+    LaunchedEffect(state.actionMessage) {
+        val message = state.actionMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        onClearActionMessage()
+    }
     Column(
         Modifier.fillMaxSize()
             .background(if (nanoMode) NanoScreenGlow else RiftBackgroundBrush())
@@ -183,11 +203,10 @@ fun LibraryScreen(
                     if (nanoMode) NanoFilterChip(tab, state.category == category) { onCategory(category) }
                     else FilterChip(selected = state.category == category, onClick = { onCategory(category) }, label = { Text(tab) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
                 }
-                if (state.category == "Playlists") {
-                    TextButton(onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true }) { Text("+ New") }
-                    TextButton(onClick = onImportM3u) { Text("Import") }
-                    TextButton(onClick = onImportBackup) { Text("Restore") }
-                    TextButton(onClick = onExportBackup) { Text("Backup") }
+                if (state.category == "Folders") {
+                    TextButton(onClick = { showingHiddenFolders = !showingHiddenFolders }) {
+                        Text(if (showingHiddenFolders) "‹ Folders" else "Hidden folders")
+                    }
                 }
             }
             Box(Modifier.align(Alignment.CenterEnd).width(20.dp).height(42.dp).background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.background.copy(alpha = 0f), MaterialTheme.colorScheme.background))))
@@ -204,7 +223,7 @@ fun LibraryScreen(
                     "Artists" -> "Search artists"
                     "Albums" -> "Search albums or artists"
                     "Playlists" -> "Search playlists"
-                    "Folders" -> "Search folders"
+                    "Folders" -> if (showingHiddenFolders) "Search hidden folders" else "Search folders"
                     "Genres" -> "Search genres"
                     "Years" -> "Search years"
                     "Duplicates" -> "Search duplicate tracks"
@@ -229,6 +248,19 @@ fun LibraryScreen(
                         unfocusedContainerColor = Color(0xFF0B1827),
                     ) else OutlinedTextFieldDefaults.colors(),
                 )
+                if (state.category == "Playlists") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("+ New") }
+                        TextButton(onClick = onImportM3u, modifier = Modifier.weight(1f)) { Text("Import") }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onImportBackup, modifier = Modifier.weight(1f)) { Text("Restore") }
+                        TextButton(onClick = onExportBackup, modifier = Modifier.weight(1f)) { Text("Backup") }
+                    }
+                }
                 if (state.category == "Songs") {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         var sortMenuOpen by remember { mutableStateOf(false) }
@@ -265,21 +297,28 @@ fun LibraryScreen(
                     "Artists" -> state.visibleArtists.isNotEmpty()
                     "Albums" -> state.visibleAlbums.isNotEmpty()
                     "Playlists" -> state.visiblePlaylists.isNotEmpty()
-                    "Folders" -> state.visibleFolders.isNotEmpty()
+                    "Folders" -> if (showingHiddenFolders) state.visibleHiddenFolders.isNotEmpty() else state.visibleFolders.isNotEmpty()
                     "Genres" -> state.visibleGenres.isNotEmpty()
                     "Years" -> state.visibleYears.isNotEmpty()
-                    "Duplicates" -> state.visibleDuplicateTracks.isNotEmpty()
+                    "Duplicates" -> state.visibleDuplicateGroups.isNotEmpty()
                     "Search" -> state.visibleTracks.isNotEmpty() || state.visibleArtists.isNotEmpty() || state.visibleAlbums.isNotEmpty() || state.visiblePlaylists.isNotEmpty()
                     else -> songs.isNotEmpty()
                 }
                 if (!hasRows) EmptyPanel(
                     "♫",
-                    if (state.browseTitle != null) "No tracks found" else if (state.category == "Playlists") "No playlists yet" else if (state.category == "Search") "No search results" else "No music found",
+                    if (state.browseTitle != null) "No tracks found"
+                    else if (state.category == "Duplicates") "No duplicates found"
+                    else if (state.category == "Folders" && showingHiddenFolders) "No hidden folders"
+                    else if (state.category == "Playlists") "No playlists yet"
+                    else if (state.category == "Search") "No search results"
+                    else "No music found",
                     if (state.browseTitle != null) "This collection has no available tracks."
+                    else if (state.category == "Duplicates") "No matching duplicate groups are in your library."
+                    else if (state.category == "Folders" && showingHiddenFolders) "Folders you hide from the library will appear here."
                     else if (state.category == "Playlists") "Create your first playlist to keep songs together."
                     else if (state.category == "Search") "Try a different search or select another filter."
                     else "Add audio files to your phone or SD card, then scan again.",
-                    if (state.browseTitle == null && state.category == "Playlists") "Create" else if (state.browseTitle == null && state.category != "Search") "Scan again" else null,
+                    if (state.browseTitle == null && state.category == "Playlists") "Create" else if (state.browseTitle == null && state.category != "Search" && state.category != "Duplicates" && !(state.category == "Folders" && showingHiddenFolders)) "Scan again" else null,
                     if (state.browseTitle == null && state.category == "Playlists") ({ tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true })
                     else if (state.browseTitle == null && state.category != "Search") onRetry else null,
                 )
@@ -359,26 +398,52 @@ fun LibraryScreen(
                             }
                             if (state.searchQuery.isBlank()) AlphaIndexRail(state.visibleArtists.map { it.name }, listState, Modifier.align(Alignment.CenterEnd))
                         }
-                        state.category in listOf("Folders", "Genres", "Years") -> CollectionList(
-                            items = when (state.category) {
-                                "Folders" -> state.visibleFolders
-                                "Genres" -> state.visibleGenres
-                                else -> state.visibleYears
-                            },
+                        state.category == "Folders" -> FolderList(
+                            items = if (showingHiddenFolders) state.visibleHiddenFolders else state.visibleFolders,
+                            hidden = showingHiddenFolders,
+                            onHide = { folderToHide = it.id },
+                            onUnhide = { onToggleFolderHidden(it.id, false) {} },
+                            onOpen = { onOpenCollection(it, "Folders") },
+                        )
+                        state.category in listOf("Genres", "Years") -> CollectionList(
+                            items = if (state.category == "Genres") state.visibleGenres else state.visibleYears,
                             artworkRepository = artworkRepository,
-                            isFolderList = state.category == "Folders",
-                            hiddenFolderPaths = state.hiddenFolderPaths,
-                            onToggleFolderHidden = onToggleFolderHidden,
                             onOpen = { onOpenCollection(it, state.category) },
                         )
                         state.category == "Duplicates" -> LazyColumn(contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            item { Text("POSSIBLE DUPLICATES · ${state.visibleDuplicateTracks.size}", Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            items(state.visibleDuplicateTracks, key = { "duplicate:${it.uri}" }) { track ->
-                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onPlayTrack(track) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    AlbumTile(track, artworkRepository, Modifier.size(48.dp))
-                                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                        Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                                        Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            item { Text("${countLabel(state.visibleDuplicateGroups.size, "group").uppercase()}", Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            items(state.visibleDuplicateGroups, key = { "duplicate-group:${it.id}" }) { group ->
+                                Column(
+                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(group.tracks.first().title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                            Text("${countLabel(group.tracks.size, "track")} in this group", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        TextButton(onClick = { pendingDuplicateAction = PendingDuplicateAction.NotDuplicate(group) }) {
+                                            Text("Not a duplicate")
+                                        }
+                                    }
+                                    Text("Matched because: ${group.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    group.tracks.forEach { track ->
+                                        Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(track.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                            Text(track.filePath.ifBlank { track.uri.toString() }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(
+                                                "Size ${formatAudioSize(track.sizeBytes)} · ${if (track.bitrate > 0) "${track.bitrate} kbps" else "Unknown bitrate"} · ${formatTime(track.durationMs)} · ${formatTrackDate(track.dateAddedSeconds)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                TextButton(onClick = { pendingDuplicateAction = PendingDuplicateAction.Keep(group, track) }) { Text("Keep") }
+                                                TextButton(onClick = { pendingDuplicateAction = PendingDuplicateAction.Delete(group, track) }) { Text("Delete") }
+                                            }
+                                        }
+                                        if (track != group.tracks.last()) HorizontalDivider()
                                     }
                                 }
                             }
@@ -393,6 +458,7 @@ fun LibraryScreen(
                             items(state.visiblePlaylists, key = { "${it.volumeName}:${it.id}" }) { item ->
                                 PlaylistBrowseRow(
                                     playlist = item,
+                                    artworkRepository = artworkRepository,
                                     onOpen = { onOpenPlaylist(item) },
                                     onRename = { playlistToRename = item; playlistNameInput = item.name },
                                     onDelete = { playlistToDelete = item },
@@ -444,6 +510,7 @@ fun LibraryScreen(
                 if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(vertical = 7.dp))
             }
         }
+        SnackbarHost(hostState = snackbarHostState)
     }
     trackToDelete?.let { track ->
         AlertDialog(
@@ -459,6 +526,61 @@ fun LibraryScreen(
             dismissButton = { TextButton(onClick = { trackToDelete = null }) { Text("Cancel") } },
         )
     }
+    folderToHide?.let { path ->
+        AlertDialog(
+            onDismissRequest = { folderToHide = null },
+            title = { Text("Hide folder?") },
+            text = { Text("Hide $path and its songs from the library? You can unhide it later from Hidden folders.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    folderToHide = null
+                    onToggleFolderHidden(path, true) {
+                        scope.launch {
+                            if (snackbarHostState.showSnackbar(
+                                    message = "Folder hidden",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short,
+                                ) == SnackbarResult.ActionPerformed
+                            ) {
+                                onToggleFolderHidden(path, false) {}
+                            }
+                        }
+                    }
+                }) { Text("Hide") }
+            },
+            dismissButton = { TextButton(onClick = { folderToHide = null }) { Text("Cancel") } },
+        )
+    }
+    pendingDuplicateAction?.let { action ->
+        val title = when (action) {
+            is PendingDuplicateAction.Keep -> "Keep this track?"
+            is PendingDuplicateAction.Delete -> "Delete this track?"
+            is PendingDuplicateAction.NotDuplicate -> "Mark as not a duplicate?"
+        }
+        val message = when (action) {
+            is PendingDuplicateAction.Keep -> "Keep “${action.track.title}” and delete the other ${countLabel(action.group.tracks.size - 1, "track")} in this group from the device? This cannot be undone."
+            is PendingDuplicateAction.Delete -> "Delete “${action.track.title}” from this device? This cannot be undone."
+            is PendingDuplicateAction.NotDuplicate -> "Remove this group from duplicate results? This choice will be saved in the app database."
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDuplicateAction = null },
+            title = { Text(title) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    when (action) {
+                        is PendingDuplicateAction.Keep -> onDeleteTracks(action.group.tracks.filterNot { it.uri == action.track.uri })
+                        is PendingDuplicateAction.Delete -> onDeleteTracks(listOf(action.track))
+                        is PendingDuplicateAction.NotDuplicate -> onNotDuplicate(action.group.tracks.map { it.uri })
+                    }
+                    pendingDuplicateAction = null
+                }) {
+                    Text(if (action is PendingDuplicateAction.NotDuplicate) "Not a duplicate" else if (action is PendingDuplicateAction.Keep) "Keep" else "Delete")
+                }
+            },
+            dismissButton = { TextButton(onClick = { pendingDuplicateAction = null }) { Text("Cancel") } },
+        )
+    }
     artistToMerge?.let { artist ->
         AlertDialog(
             onDismissRequest = { artistToMerge = null },
@@ -468,6 +590,7 @@ fun LibraryScreen(
                     Text("Treat this name as ${artist.name} in your library. The audio tags will not be changed.")
                     OutlinedTextField(value = artistAliasInput, onValueChange = { artistAliasInput = it }, singleLine = true, label = { Text("Other artist name") })
                 }
+
             },
             confirmButton = {
                 TextButton(
@@ -479,6 +602,29 @@ fun LibraryScreen(
                 ) { Text("Merge") }
             },
             dismissButton = { TextButton(onClick = { artistToMerge = null }) { Text("Cancel") } },
+        )
+    }
+    state.playlistImportReport?.let { report ->
+        AlertDialog(
+            onDismissRequest = onClearPlaylistImportReport,
+            title = { Text("Playlist imported") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${report.matchedCount} of ${report.totalCount} tracks matched in “${report.playlistName}”.")
+                    if (report.unmatchedEntries.isNotEmpty()) {
+                        Text("Not matched:", fontWeight = FontWeight.SemiBold)
+                        Column(
+                            Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            report.unmatchedEntries.forEach { entry ->
+                                Text(entry, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = onClearPlaylistImportReport) { Text("Done") } },
         )
     }
 
@@ -534,20 +680,59 @@ fun LibraryScreen(
     }
 }
 
+private sealed interface PendingDuplicateAction {
+    val group: com.dizzyvy.rift.ui.library.DuplicateGroup
+
+    data class Keep(override val group: DuplicateGroup, val track: AudioTrack) : PendingDuplicateAction
+    data class Delete(override val group: DuplicateGroup, val track: AudioTrack) : PendingDuplicateAction
+    data class NotDuplicate(override val group: DuplicateGroup) : PendingDuplicateAction
+}
+
+@Composable
+private fun FolderList(
+    items: List<LibraryCollectionItem>,
+    hidden: Boolean,
+    onHide: (LibraryCollectionItem) -> Unit,
+    onUnhide: (LibraryCollectionItem) -> Unit,
+    onOpen: (LibraryCollectionItem) -> Unit,
+) {
+    LazyColumn(contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        items(items, key = { "folder:${it.id}" }) { item ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .clickable(enabled = !hidden) { onOpen(item) }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.tertiaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("📁", style = MaterialTheme.typography.titleLarge)
+                }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(item.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(item.id, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(countLabel(item.trackCount, "song"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = { if (hidden) onUnhide(item) else onHide(item) }) {
+                    Text(if (hidden) "Unhide" else "Hide")
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CollectionList(
     items: List<LibraryCollectionItem>,
     artworkRepository: ArtworkRepository,
-    isFolderList: Boolean = false,
-    hiddenFolderPaths: Set<String> = emptySet(),
-    onToggleFolderHidden: (String, Boolean) -> Unit = { _, _ -> },
     onOpen: (LibraryCollectionItem) -> Unit,
 ) {
     LazyColumn(contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         items(items, key = { it.id }) { item ->
-            val hidden = isFolderList && item.id in hiddenFolderPaths
             val subtitle = when {
-                hidden -> "Hidden from library · " + item.id
                 item.subtitle == "Year" -> countLabel(item.trackCount, "song")
                 item.subtitle == item.id -> countLabel(item.trackCount, "song")
                 else -> item.subtitle + " · " + countLabel(item.trackCount, "song")
@@ -557,15 +742,13 @@ private fun CollectionList(
                 title = item.title,
                 subtitle = subtitle,
                 artworkRepository = artworkRepository,
-                trailingContent = if (isFolderList) {
-                    { TextButton(onClick = { onToggleFolderHidden(item.id, !hidden) }) { Text(if (hidden) "Show" else "Hide") } }
-                } else null,
-            ) {
-                if (hidden) onToggleFolderHidden(item.id, false) else onOpen(item)
-            }
+            ) { onOpen(item) }
         }
     }
 }
+
+private fun formatTrackDate(dateAddedSeconds: Long): String =
+    if (dateAddedSeconds > 0L) DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(dateAddedSeconds * 1_000L)) else "Unknown date"
 
 @Composable
 private fun SearchResults(
@@ -607,12 +790,14 @@ private fun SearchResults(
         if (playlists.isNotEmpty()) {
             item { Text("PLAYLISTS · ${playlists.size}", Modifier.padding(start = 5.dp, top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(playlists, key = { "search-playlist:${it.volumeName}:${it.id}" }) { playlist ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpenPlaylist(playlist) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
-                        Text(playlist.name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge)
-                    }
-                    Text(playlist.name, Modifier.padding(start = 12.dp), fontWeight = FontWeight.SemiBold)
-                }
+                PlaylistBrowseRow(
+                    playlist = playlist,
+                    artworkRepository = artworkRepository,
+                    onOpen = { onOpenPlaylist(playlist) },
+                    onRename = { playlistToRename = playlist; playlistNameInput = playlist.name },
+                    onDelete = { playlistToDelete = playlist },
+                    onExport = { onExportM3u(playlist) },
+                )
             }
         }
     }
@@ -621,6 +806,7 @@ private fun SearchResults(
 @Composable
 private fun PlaylistBrowseRow(
     playlist: DevicePlaylist,
+    artworkRepository: ArtworkRepository,
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -628,22 +814,68 @@ private fun PlaylistBrowseRow(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onOpen).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
-            Text(playlist.name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge)
-        }
+        PlaylistCoverMosaic(playlist, artworkRepository)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(playlist.name, fontWeight = FontWeight.SemiBold)
             Text(countLabel(playlist.trackCount, "song"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (playlist.isLocal) {
-            Box {
-                TextButton(onClick = { menuOpen = true }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("⋮") }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    if (!playlist.isAuto) DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
-                    DropdownMenuItem(text = { Text("Export M3U") }, onClick = { menuOpen = false; onExport() })
-                    if (!playlist.isAuto) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuOpen = false; onDelete() })
+        Box {
+            TextButton(onClick = { menuOpen = true }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("⋮") }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Open playlist") }, onClick = { menuOpen = false; onOpen() })
+                DropdownMenuItem(text = { Text("Export M3U") }, onClick = { menuOpen = false; onExport() })
+                if (playlist.isLocal && !playlist.isAuto) {
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
+                    DropdownMenuItem(text = { Text("Delete") }, onClick = { menuOpen = false; onDelete() })
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistCoverMosaic(playlist: DevicePlaylist, artworkRepository: ArtworkRepository) {
+    Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))) {
+        if (playlist.artworkUris.isEmpty()) {
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.tertiaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (playlist.isAuto) "↻" else "♫", style = MaterialTheme.typography.titleLarge)
+            }
+        } else {
+            Column {
+                Row {
+                    (0..1).forEach { index -> PlaylistCoverCell(playlist.artworkUris.getOrNull(index), playlist, artworkRepository) }
+                }
+                Row {
+                    (2..3).forEach { index -> PlaylistCoverCell(playlist.artworkUris.getOrNull(index), playlist, artworkRepository) }
+                }
+            }
+        }
+        if (playlist.isAuto && playlist.artworkUris.isNotEmpty()) {
+            Box(
+                Modifier.align(Alignment.BottomEnd).size(18.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("↻", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistCoverCell(uri: Uri?, playlist: DevicePlaylist, artworkRepository: ArtworkRepository) {
+    Box(
+        Modifier.size(24.dp)
+            .background(MaterialTheme.colorScheme.tertiaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (uri != null) {
+            AlbumArtwork(uri, playlist.name, artworkRepository, Modifier.fillMaxSize())
+        } else {
+            Text(if (playlist.isAuto) "↻" else "♫", style = MaterialTheme.typography.labelSmall)
         }
     }
 }

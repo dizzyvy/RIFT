@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -68,7 +69,8 @@ fun RiftApp(
     val refreshScope = rememberCoroutineScope()
     var pendingExportText by remember { mutableStateOf("") }
     var pendingBackupText by remember { mutableStateOf("") }
-    var pendingDeleteUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingDeleteUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var continuePendingDelete by remember { mutableIntStateOf(0) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
         if (uri != null) runCatching {
             val output = requireNotNull(context.contentResolver.openOutputStream(uri))
@@ -76,12 +78,49 @@ fun RiftApp(
         }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not write the playlist file.") }
     }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        val uriToDelete = pendingDeleteUri
-        pendingDeleteUri = null
-        if (result.resultCode == Activity.RESULT_OK) {
-            runCatching { uriToDelete?.let { context.contentResolver.delete(it, null, null) } }
+        val queuedUris = pendingDeleteUris
+        pendingDeleteUris = emptyList()
+        if (result.resultCode == Activity.RESULT_OK && Build.VERSION.SDK_INT < Build.VERSION_CODES.R && queuedUris.isNotEmpty()) {
+            runCatching { context.contentResolver.delete(queuedUris.first(), null, null) }
+                .onSuccess {
+                    pendingDeleteUris = queuedUris.drop(1)
+                    continuePendingDelete += 1
+                }
                 .onFailure { libraryViewModel.reportActionError(it.message ?: "Could not delete this song.") }
-            libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
+        }
+        libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
+    }
+    fun requestDeleteUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                val request = MediaStore.createDeleteRequest(context.contentResolver, uris)
+                deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+            }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not request permission to delete these songs.") }
+            return
+        }
+        val remaining = uris.toMutableList()
+        while (remaining.isNotEmpty()) {
+            val uri = remaining.first()
+            try {
+                context.contentResolver.delete(uri, null, null)
+                remaining.removeAt(0)
+            } catch (recoverable: RecoverableSecurityException) {
+                pendingDeleteUris = remaining.toList()
+                deleteLauncher.launch(IntentSenderRequest.Builder(recoverable.userAction.actionIntent.intentSender).build())
+                return
+            } catch (exception: Exception) {
+                libraryViewModel.reportActionError(exception.message ?: "Could not delete this song.")
+                return
+            }
+        }
+        libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
+    }
+    LaunchedEffect(continuePendingDelete) {
+        if (continuePendingDelete > 0 && pendingDeleteUris.isNotEmpty()) {
+            val remaining = pendingDeleteUris
+            pendingDeleteUris = emptyList()
+            requestDeleteUris(remaining)
         }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -231,29 +270,10 @@ fun RiftApp(
                 onNextTrack = playbackController::skipNext,
                 onAddToQueue = playbackController::addQueueItem,
                 onPlayNext = playbackController::playNext,
-                onDeleteTrack = { track ->
-                    runCatching {
-                        when {
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
-                                val request = MediaStore.createDeleteRequest(context.contentResolver, listOf(track.uri))
-                                deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
-                            }
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                                try {
-                                    context.contentResolver.delete(track.uri, null, null)
-                                    libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
-                                } catch (recoverable: RecoverableSecurityException) {
-                                    pendingDeleteUri = track.uri
-                                    deleteLauncher.launch(IntentSenderRequest.Builder(recoverable.userAction.actionIntent.intentSender).build())
-                                }
-                            }
-                            else -> {
-                                context.contentResolver.delete(track.uri, null, null)
-                                libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
-                            }
-                        }
-                    }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not delete this song.") }
-                },
+                onDeleteTrack = { track -> requestDeleteUris(listOf(track.uri)) },
+                onDeleteTracks = { tracks -> requestDeleteUris(tracks.map { it.uri }) },
+                onNotDuplicate = { uris -> libraryViewModel.setTracksNotDuplicate(uris, true) },
+                onClearActionMessage = libraryViewModel::clearActionMessage,
                 onCategory = libraryViewModel::selectCategory,
                 onOpenArtist = libraryViewModel::openArtist,
                 onMergeArtistAlias = libraryViewModel::setArtistAlias,
@@ -265,6 +285,7 @@ fun RiftApp(
                 onRenamePlaylist = libraryViewModel::renamePlaylist,
                 onDeletePlaylist = libraryViewModel::deletePlaylist,
                 onImportM3u = { importLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain")) },
+                onClearPlaylistImportReport = libraryViewModel::clearPlaylistImportReport,
                 onExportM3u = { playlist -> libraryViewModel.exportM3u(playlist) { contents -> pendingExportText = contents; exportLauncher.launch(playlist.name + ".m3u") } },
                 onImportBackup = { backupImportLauncher.launch(arrayOf("application/json", "text/plain")) },
                 onExportBackup = { libraryViewModel.exportBackup { contents -> pendingBackupText = contents; backupExportLauncher.launch("RIFT-Backup.json") } },
@@ -278,7 +299,9 @@ fun RiftApp(
                 accentName = accentName,
                 onThemeModeChange = onThemeModeChange,
                 onAccentChange = onAccentChange,
-                onToggleFolderHidden = libraryViewModel::setFolderHidden,
+                onToggleFolderHidden = { path, hidden, onComplete ->
+                    libraryViewModel.setFolderHidden(path, hidden, onComplete)
+                },
             )
         }
       }
