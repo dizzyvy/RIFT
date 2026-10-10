@@ -44,6 +44,9 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     private val pendingAddedTracks = mutableListOf<AudioTrack>()
     private val pendingPlayNextTracks = mutableListOf<AudioTrack>()
     private var positionJob: Job? = null
+    private var highFrequencyPosition = false
+    private var abLoopStartMs: Long? = null
+    private var abLoopEndMs: Long? = null
     private var released = false
 
     override val snapshot: StateFlow<PlaybackSnapshot> = _snapshot.asStateFlow()
@@ -153,6 +156,17 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
 
     override fun seekTo(positionMs: Long) {
         mediaController?.seekTo(positionMs.coerceAtLeast(0L))
+    }
+
+    override fun setHighFrequencyPosition(enabled: Boolean) {
+        highFrequencyPosition = enabled
+        restartPositionPolling()
+    }
+
+    override fun setAbLoop(startMs: Long?, endMs: Long?) {
+        abLoopStartMs = startMs?.coerceAtLeast(0L)
+        abLoopEndMs = endMs?.takeIf { startMs != null && it > startMs }?.coerceAtLeast(0L)
+        restartPositionPolling()
     }
 
     override fun setShuffleEnabled(enabled: Boolean) { mediaController?.shuffleModeEnabled = enabled }
@@ -331,7 +345,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
 
     private fun MediaItem.toAudioTrack(): AudioTrack? {
         val uri = localConfiguration?.uri ?: return null
-        return cleanTrackMetadata(AudioTrack(
+        return AudioTrack(
             id = mediaId.toLongOrNull() ?: uri.toString().hashCode().toLong(),
             uri = uri,
             title = mediaMetadata.title?.toString()?.takeIf(String::isNotBlank)
@@ -339,7 +353,8 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             artist = mediaMetadata.artist?.toString().orEmpty(),
             album = mediaMetadata.albumTitle?.toString().orEmpty(),
             durationMs = 0L,
-        ))
+            metadataCleaned = true,
+        )
     }
 
     private fun updatePositionPolling() {
@@ -352,15 +367,35 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
 
         positionJob = scope.launch {
             while (isActive && mediaController?.isPlaying == true) {
-                mediaController?.let { refreshSnapshot(it) }
-                delay(POSITION_UPDATE_INTERVAL_MS)
+                mediaController?.let { controller ->
+                    val loopStart = abLoopStartMs
+                    val loopEnd = abLoopEndMs
+                    if (loopStart != null && loopEnd != null && controller.currentPosition >= loopEnd) {
+                        controller.seekTo(loopStart)
+                    }
+                    refreshSnapshot(controller)
+                }
+                delay(
+                    when {
+                        abLoopStartMs != null && abLoopEndMs != null -> AB_LOOP_POSITION_UPDATE_INTERVAL_MS
+                        highFrequencyPosition -> HIGH_FREQUENCY_POSITION_UPDATE_INTERVAL_MS
+                        else -> POSITION_UPDATE_INTERVAL_MS
+                    },
+                )
             }
-            positionJob = null
         }
+    }
+
+    private fun restartPositionPolling() {
+        positionJob?.cancel()
+        positionJob = null
+        updatePositionPolling()
     }
 
     private companion object {
         const val POSITION_UPDATE_INTERVAL_MS = 1_000L
+        const val HIGH_FREQUENCY_POSITION_UPDATE_INTERVAL_MS = 250L
+        const val AB_LOOP_POSITION_UPDATE_INTERVAL_MS = 100L
         val EMPTY_SNAPSHOT = PlaybackSnapshot(
             queue = emptyList(),
             currentIndex = -1,

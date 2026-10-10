@@ -1,6 +1,7 @@
 package com.dizzyvy.rift.ui.player
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -40,6 +41,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+private const val WHEEL_SEEK_INTERVAL_MS = 80L
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun NowPlayingScreen(
@@ -50,6 +53,8 @@ fun NowPlayingScreen(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
+    onSetHighFrequencyPosition: (Boolean) -> Unit,
+    onSetAbLoop: (Long?, Long?) -> Unit,
     onPlayQueueItem: (Int) -> Unit,
     onShuffle: (Boolean) -> Unit,
     onRepeat: (Int) -> Unit,
@@ -76,6 +81,8 @@ fun NowPlayingScreen(
     var loopStartMs by remember(track?.uri) { mutableStateOf<Long?>(null) }
     var loopEndMs by remember(track?.uri) { mutableStateOf<Long?>(null) }
     var scrubPositionMs by remember(track?.uri) { mutableStateOf<Float?>(null) }
+    val wheelSeekPositionMs = remember { longArrayOf(0L) }
+    val lastWheelSeekAtMs = remember { longArrayOf(0L) }
     val scope = rememberCoroutineScope()
     val queueSnackbarState = remember { SnackbarHostState() }
     var queueOpen by remember { mutableStateOf(false) }
@@ -102,26 +109,22 @@ fun NowPlayingScreen(
         return
     }
 
-    LaunchedEffect(playback.positionMs, playback.isPlaying, loopStartMs, loopEndMs) {
-        val start = loopStartMs
-        val end = loopEndMs
-        if (playback.isPlaying && start != null && end != null && end > start && playback.positionMs >= end) {
-            onSeek(start)
+    DisposableEffect(onSetHighFrequencyPosition, onSetAbLoop) {
+        onSetHighFrequencyPosition(true)
+        onDispose {
+            onSetHighFrequencyPosition(false)
+            onSetAbLoop(null, null)
         }
+    }
+    LaunchedEffect(track?.uri) {
+        loopStartMs = null
+        loopEndMs = null
+        onSetAbLoop(null, null)
     }
 
     var lyrics by remember(track.uri, lyricsDirectoryUri) { mutableStateOf<LocalLyrics?>(null) }
     var loadingLyrics by remember(track.uri, lyricsDirectoryUri) { mutableStateOf(false) }
     var lyricsError by remember(track.uri, lyricsDirectoryUri) { mutableStateOf(false) }
-    var artworkAccent by remember(track.uri) { mutableStateOf<Color?>(null) }
-    LaunchedEffect(track.uri) {
-        artworkAccent = try {
-            val bitmap = artworkRepository.load(track.uri)?.bitmap
-            if (bitmap == null) null else sampleArtworkColor(bitmap)
-        } catch (_: Exception) {
-            null
-        }
-    }
     LaunchedEffect(track.uri, lyricsDirectoryUri) {
         lyrics = null
         lyricsError = false
@@ -204,8 +207,9 @@ fun NowPlayingScreen(
             )
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(playback.positionMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("-${formatTime((playback.durationMs - playback.positionMs).coerceAtLeast(0L))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val displayedPosition = (scrubPositionMs ?: playback.positionMs.toFloat()).toLong()
+            Text(formatTime(displayedPosition), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("-${formatTime((playback.durationMs - displayedPosition).coerceAtLeast(0L))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             FilterChip(selected = playback.shuffleEnabled, onClick = { onShuffle(!playback.shuffleEnabled) }, label = { Text(if (playback.shuffleEnabled) "Shuffle on" else "Shuffle off") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
@@ -213,9 +217,36 @@ fun NowPlayingScreen(
                 Text(when (playback.repeatMode) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repeat all"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repeat one"; else -> "Repeat off" })
             }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
         }
-        ClickWheel(playing = playback.isPlaying, queueOpen = queueOpen, onMenu = onBack, onPrevious = onPrevious, onTogglePlayback = onPlayPause, onNext = onNext, onSelect = { queueOpen = true; moreSheetOpen = true }, sensitivity = clickWheelSensitivity, hapticsEnabled = clickWheelHaptics, compact = true, onRotate = { delta ->
-            onSeek((playback.positionMs + (delta * 120_000).roundToInt()).coerceIn(0L, playback.durationMs.coerceAtLeast(0L)))
-        })
+        ClickWheel(
+            playing = playback.isPlaying,
+            queueOpen = queueOpen,
+            onMenu = onBack,
+            onPrevious = onPrevious,
+            onTogglePlayback = onPlayPause,
+            onNext = onNext,
+            onSelect = { queueOpen = true; moreSheetOpen = true },
+            sensitivity = clickWheelSensitivity,
+            hapticsEnabled = clickWheelHaptics,
+            compact = true,
+            onRotateStart = {
+                wheelSeekPositionMs[0] = playback.positionMs
+                lastWheelSeekAtMs[0] = 0L
+            },
+            onRotate = { delta ->
+                val rotationMs = (playback.durationMs / 4L).coerceIn(20_000L, 120_000L)
+                wheelSeekPositionMs[0] = (wheelSeekPositionMs[0] + (delta * rotationMs).roundToInt())
+                    .coerceIn(0L, playback.durationMs.coerceAtLeast(0L))
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastWheelSeekAtMs[0] >= WHEEL_SEEK_INTERVAL_MS) {
+                    onSeek(wheelSeekPositionMs[0])
+                    lastWheelSeekAtMs[0] = now
+                }
+            },
+            onRotateEnd = {
+                onSeek(wheelSeekPositionMs[0])
+                lastWheelSeekAtMs[0] = SystemClock.elapsedRealtime()
+            },
+        )
     }
     SnackbarHost(hostState = queueSnackbarState, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
     }
@@ -241,9 +272,32 @@ fun NowPlayingScreen(
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-                    FilterChip(selected = loopStartMs != null, onClick = { loopStartMs = playback.positionMs; loopEndMs = null }, label = { Text(loopStartMs?.let { "A · ${formatTime(it)}" } ?: "Set A") })
-                    FilterChip(selected = loopEndMs != null, enabled = loopStartMs != null && playback.positionMs > (loopStartMs ?: Long.MAX_VALUE), onClick = { loopEndMs = playback.positionMs }, label = { Text(loopEndMs?.let { "B · ${formatTime(it)}" } ?: "Set B") })
-                    if (loopStartMs != null || loopEndMs != null) AssistChip(onClick = { loopStartMs = null; loopEndMs = null }, label = { Text("Clear") })
+                    FilterChip(
+                        selected = loopStartMs != null,
+                        onClick = {
+                            loopStartMs = playback.positionMs
+                            loopEndMs = null
+                            onSetAbLoop(loopStartMs, null)
+                        },
+                        label = { Text(loopStartMs?.let { "A · ${formatTime(it)}" } ?: "Set A") },
+                    )
+                    FilterChip(
+                        selected = loopEndMs != null,
+                        enabled = loopStartMs != null && playback.positionMs > (loopStartMs ?: Long.MAX_VALUE),
+                        onClick = {
+                            loopEndMs = playback.positionMs
+                            onSetAbLoop(loopStartMs, loopEndMs)
+                        },
+                        label = { Text(loopEndMs?.let { "B · ${formatTime(it)}" } ?: "Set B") },
+                    )
+                    if (loopStartMs != null || loopEndMs != null) AssistChip(
+                        onClick = {
+                            loopStartMs = null
+                            loopEndMs = null
+                            onSetAbLoop(null, null)
+                        },
+                        label = { Text("Clear") },
+                    )
                 }
                 Text("A–B repeat · Set A, then Set B to loop that section", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

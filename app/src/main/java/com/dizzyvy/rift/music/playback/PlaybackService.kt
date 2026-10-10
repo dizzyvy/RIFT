@@ -1,9 +1,6 @@
 package com.dizzyvy.rift.music.playback
 
 import android.net.Uri
-import android.media.AudioFocusRequest
-import android.media.AudioManager
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
@@ -29,45 +26,6 @@ class PlaybackService : MediaSessionService() {
     private val playbackIo = Executors.newSingleThreadExecutor()
     private val playbackStore by lazy { SqlitePlaylistStore(applicationContext) }
     @Volatile private var destroyed = false
-    private var transientFocusLoss = false
-    private var resumeAfterFocusGain = false
-    private val audioManager by lazy { getSystemService(AudioManager::class.java) }
-    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        val player = mediaSession?.player ?: return@OnAudioFocusChangeListener
-        when (change) {
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                val shouldResume = resumeAfterFocusGain
-                transientFocusLoss = false
-                resumeAfterFocusGain = false
-                if (shouldResume) player.play()
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                resumeAfterFocusGain = player.playWhenReady
-                transientFocusLoss = true
-                player.pause()
-            }
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                transientFocusLoss = false
-                resumeAfterFocusGain = false
-                player.pause()
-            }
-        }
-    }
-    private val audioFocusRequest by lazy {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    android.media.AudioAttributes.Builder()
-                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
-                )
-                .setOnAudioFocusChangeListener(audioFocusListener, handler)
-                .setWillPauseWhenDucked(true)
-                .build()
-        } else null
-    }
     private val checkpoint = object : Runnable {
         override fun run() {
             savePlaybackState()
@@ -83,17 +41,8 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val player = ExoPlayer.Builder(this).build().apply {
-            setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
+            setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             setHandleAudioBecomingNoisy(true)
-            addListener(object : androidx.media3.common.Player.Listener {
-                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                    if (playWhenReady) {
-                        if (!requestAudioFocus()) pause()
-                    } else if (!transientFocusLoss) {
-                        abandonAudioFocus()
-                    }
-                }
-            })
             addListener(playerListener)
         }
         mediaSession = MediaSession.Builder(this, player)
@@ -150,27 +99,7 @@ class PlaybackService : MediaSessionService() {
         mediaSession = null
         playbackIo.execute { playbackStore.close() }
         playbackIo.shutdown()
-        abandonAudioFocus()
         super.onDestroy()
-    }
-
-    private fun requestAudioFocus(): Boolean {
-        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let(audioManager::requestAudioFocus) ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-        }
-        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-    }
-
-    private fun abandonAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let(audioManager::abandonAudioFocusRequest)
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(audioFocusListener)
-        }
     }
 
     private fun restorePlaybackState(player: ExoPlayer, state: Map<String, String>) {

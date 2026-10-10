@@ -85,12 +85,11 @@ fun canonicalGenre(value: String): String? {
 fun genreGroupLabel(value: String): String = canonicalGenre(value) ?: "Unknown"
 
 fun albumGroupKey(track: AudioTrack, aliases: Map<String, String> = emptyMap()): String {
-    val cleaned = cleanTrackMetadata(track)
-    val albumArtist = cleanMetadataValue(cleaned.albumArtist)
+    val albumArtist = cleanMetadataValue(track.albumArtist)
         .takeUnless(::isUnknownMetadata)
         ?.let { resolveArtistAlias(it, aliases) }
-        ?: artistNamesForTrack(cleaned, aliases).joinToString(", ")
-    return "${normalizeAlbumKey(cleaned.album)}|${normalizeArtistName(albumArtist)}"
+        ?: artistNamesForTrack(track, aliases).joinToString(", ")
+    return "${normalizeAlbumKey(track.album)}|${normalizeArtistName(albumArtist)}"
 }
 
 private fun cleanAlbumName(value: String, relativePath: String, filePath: String): String {

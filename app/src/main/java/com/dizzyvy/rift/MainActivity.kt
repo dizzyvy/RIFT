@@ -8,16 +8,16 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import androidx.compose.ui.graphics.toArgb
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.dizzyvy.rift.music.library.MediaStoreAudioLibraryRepository
 import com.dizzyvy.rift.music.library.SqlitePlaylistStore
 import com.dizzyvy.rift.music.artwork.EmbeddedArtworkRepository
@@ -35,9 +35,9 @@ class MainActivity : ComponentActivity() {
     private var requestedAudioPermissionBefore = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         externalAudioUriState.value = intent?.data?.takeIf { intent?.action == Intent.ACTION_VIEW }
-        WindowCompat.setDecorFitsSystemWindows(window, false)
         repository = MediaStoreAudioLibraryRepository(applicationContext)
         playlistStore = SqlitePlaylistStore(applicationContext)
         artworkRepository = EmbeddedArtworkRepository(applicationContext, playlistStore)
@@ -55,19 +55,14 @@ class MainActivity : ComponentActivity() {
                 .apply()
         }
         themeModeState.value = normalizeThemeMode(preferences.getString(KEY_THEME_MODE, "system"))
+        val systemDarkTheme =
+            (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        applySystemBars(isThemeDark(themeModeState.value, systemDarkTheme))
         setContent {
             val systemDarkTheme = isSystemInDarkTheme()
-            SideEffect {
-                val isDark = themeModeState.value == "dark" ||
-                    (themeModeState.value == "system" && systemDarkTheme)
-                val barColor = (if (isDark) com.dizzyvy.rift.ui.theme.RiftPalette.darkBackground
-                else com.dizzyvy.rift.ui.theme.RiftPalette.lightBackground).toArgb()
-                window.statusBarColor = barColor
-                window.navigationBarColor = barColor
-                WindowInsetsControllerCompat(window, window.decorView).apply {
-                    isAppearanceLightStatusBars = !isDark
-                    isAppearanceLightNavigationBars = !isDark
-                }
+            LaunchedEffect(themeModeState.value, systemDarkTheme) {
+                applySystemBars(isThemeDark(themeModeState.value, systemDarkTheme))
             }
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission(),
@@ -131,6 +126,21 @@ class MainActivity : ComponentActivity() {
         this,
         requiredAudioPermission(),
     ) == PackageManager.PERMISSION_GRANTED
+
+    private fun isThemeDark(mode: String, isSystemDarkTheme: Boolean): Boolean = when (mode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemDarkTheme
+    }
+
+    private fun applySystemBars(isDark: Boolean) {
+        val style = if (isDark) {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        }
+        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+    }
 
     private fun normalizeThemeMode(value: String?): String = when (value?.lowercase()) {
         "light" -> "light"

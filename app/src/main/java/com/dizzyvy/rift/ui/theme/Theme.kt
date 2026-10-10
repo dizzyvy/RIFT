@@ -90,6 +90,8 @@ private data class ThemeRoles(
     val tertiary: Color,
     val onTertiary: Color,
     val outline: Color,
+    val error: Color,
+    val onError: Color,
 )
 
 private val lightRoles = ThemeRoles(
@@ -104,6 +106,8 @@ private val lightRoles = ThemeRoles(
     tertiary = RiftPalette.yellow,
     onTertiary = RiftPalette.warmBrown,
     outline = RiftPalette.warmBrown,
+    error = Color(0xFFB3261E),
+    onError = RiftPalette.cream,
 )
 
 private val darkRoles = ThemeRoles(
@@ -118,6 +122,8 @@ private val darkRoles = ThemeRoles(
     tertiary = RiftPalette.yellow,
     onTertiary = RiftPalette.warmBrown,
     outline = RiftPalette.cream.copy(alpha = 0.7f),
+    error = Color(0xFFFF8A80),
+    onError = RiftPalette.warmBrown,
 )
 
 @Composable
@@ -132,6 +138,7 @@ fun RiftTheme(
     }
     val roles = if (isDark) darkRoles else lightRoles
     val dimOnSurface = roles.onSurface.copy(alpha = SECONDARY_TEXT_ALPHA)
+    val scrim = RiftPalette.warmBrown.copy(alpha = 0.4f)
     val palette = if (isDark) {
         darkColorScheme(
             primary = roles.primary,
@@ -156,13 +163,13 @@ fun RiftTheme(
             surfaceTint = roles.primary,
             inverseSurface = roles.onSurface,
             inverseOnSurface = roles.background,
-            error = roles.tertiary,
-            onError = roles.onTertiary,
+            error = roles.error,
+            onError = roles.onError,
             errorContainer = roles.surface,
             onErrorContainer = roles.onSurface,
             outline = roles.outline,
-            outlineVariant = roles.outline,
-            scrim = roles.background,
+            outlineVariant = roles.outline.copy(alpha = 0.18f),
+            scrim = scrim,
         )
     } else {
         lightColorScheme(
@@ -188,13 +195,13 @@ fun RiftTheme(
             surfaceTint = roles.primary,
             inverseSurface = roles.onSurface,
             inverseOnSurface = roles.background,
-            error = roles.tertiary,
-            onError = roles.onTertiary,
+            error = roles.error,
+            onError = roles.onError,
             errorContainer = roles.surface,
             onErrorContainer = roles.onSurface,
             outline = roles.outline,
-            outlineVariant = roles.outline,
-            scrim = roles.background,
+            outlineVariant = roles.outline.copy(alpha = 0.18f),
+            scrim = scrim,
         )
     }
     MaterialTheme(colorScheme = palette, typography = RiftTypography, content = content)

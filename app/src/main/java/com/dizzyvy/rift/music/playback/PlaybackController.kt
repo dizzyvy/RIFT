@@ -27,6 +27,8 @@ interface PlaybackController {
     fun skipNext()
     fun skipPrevious()
     fun seekTo(positionMs: Long)
+    fun setHighFrequencyPosition(enabled: Boolean)
+    fun setAbLoop(startMs: Long?, endMs: Long?)
     fun setShuffleEnabled(enabled: Boolean)
     fun setRepeatMode(mode: Int)
     fun moveQueueItem(fromIndex: Int, toIndex: Int)

@@ -26,9 +26,8 @@ private val artistSplitPattern = Regex("""\s*(?:,|&|\bfeat\.?)\s*""", RegexOptio
 private val artistWhitespacePattern = Regex("""\s+""")
 
 fun artistNamesForTrack(track: AudioTrack, aliases: Map<String, String> = emptyMap()): List<String> {
-    val cleaned = cleanTrackMetadata(track)
-    val preferred = cleaned.albumArtist.trim().takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }
-        ?: cleaned.artist
+    val preferred = track.albumArtist.trim().takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }
+        ?: track.artist
     return preferred.split(artistSplitPattern)
         .map { it.trim().replace(artistWhitespacePattern, " ") }
         .filter { it.isNotBlank() && !it.equals("<unknown>", true) }

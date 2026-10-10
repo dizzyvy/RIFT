@@ -38,6 +38,8 @@ fun ClickWheel(
     onNext: () -> Unit,
     onSelect: () -> Unit,
     onRotate: (Float) -> Unit,
+    onRotateStart: () -> Unit = {},
+    onRotateEnd: () -> Unit = {},
     sensitivity: Float = 1f,
     hapticsEnabled: Boolean = true,
     compact: Boolean = false,
@@ -49,6 +51,8 @@ fun ClickWheel(
     val wheelOutlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
     val centerRadius = with(LocalDensity.current) { (if (compact) 38.dp else 54.dp).toPx() }
     val latestOnRotate = rememberUpdatedState(onRotate)
+    val latestOnRotateStart = rememberUpdatedState(onRotateStart)
+    val latestOnRotateEnd = rememberUpdatedState(onRotateEnd)
     val haptics = remember(view, latestOnRotate, sensitivity, hapticsEnabled) {
         HapticDetents(view, sensitivity.coerceIn(0.5f, 2f), hapticsEnabled) { latestOnRotate.value(it) }
     }
@@ -61,7 +65,25 @@ fun ClickWheel(
                 .pointerInput(queueOpen) {
                     var previousAngle: Float? = null
                     var rotationEnabled = false
-                    detectDragGestures(onDragStart = { point -> rotationEnabled = radius(point, size.width, size.height) > centerRadius; previousAngle = if (rotationEnabled) angle(point, size.width, size.height) else null }, onDragEnd = { previousAngle = null; rotationEnabled = false }, onDragCancel = { previousAngle = null; rotationEnabled = false }) { change, _ ->
+                    detectDragGestures(
+                        onDragStart = { point ->
+                            rotationEnabled = radius(point, size.width, size.height) > centerRadius
+                            previousAngle = if (rotationEnabled) angle(point, size.width, size.height) else null
+                            if (rotationEnabled) latestOnRotateStart.value()
+                        },
+                        onDragEnd = {
+                            val wasRotating = rotationEnabled
+                            previousAngle = null
+                            rotationEnabled = false
+                            if (wasRotating) latestOnRotateEnd.value()
+                        },
+                        onDragCancel = {
+                            val wasRotating = rotationEnabled
+                            previousAngle = null
+                            rotationEnabled = false
+                            if (wasRotating) latestOnRotateEnd.value()
+                        },
+                    ) { change, _ ->
                         val current = angle(change.position, size.width, size.height)
                         if (rotationEnabled) previousAngle?.let { old ->
                             var delta = current - old

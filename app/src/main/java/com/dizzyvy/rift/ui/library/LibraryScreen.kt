@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -128,6 +130,7 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     val tabScrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
     val isTablet = LocalConfiguration.current.screenWidthDp >= 700
     var headerCollapsed by remember { mutableStateOf(false) }
     var appearanceMenuOpen by remember { mutableStateOf(false) }
@@ -150,7 +153,15 @@ fun LibraryScreen(
     var artistToMerge by remember { mutableStateOf<ArtistBrowseItem?>(null) }
     var artistAliasInput by remember { mutableStateOf("") }
     val songs = state.browseTracks ?: state.visibleTracks
-    val selectedTracks = state.tracks.filter { it.uri.toString() in selectedUris }
+    val selectedTracks = songs.filter { it.uri.toString() in selectedUris }
+    BackHandler(enabled = selectedUris.isNotEmpty() || state.searchQuery.isNotEmpty()) {
+        if (selectedUris.isNotEmpty()) {
+            selectedUris = emptySet()
+        } else {
+            onSearch("")
+            focusManager.clearFocus()
+        }
+    }
     LaunchedEffect(listState, isTablet, state.browseTitle) {
         var previousPosition = 0L
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
@@ -182,6 +193,7 @@ fun LibraryScreen(
         }
     }
     LaunchedEffect(state.category, state.browseTitle) { selectedUris = emptySet() }
+    LaunchedEffect(state.category) { focusManager.clearFocus() }
     LaunchedEffect(state.category) { showingHiddenFolders = false }
     LaunchedEffect(state.actionMessage) {
         val message = state.actionMessage ?: return@LaunchedEffect

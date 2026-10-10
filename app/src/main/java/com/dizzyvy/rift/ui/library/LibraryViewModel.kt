@@ -83,12 +83,14 @@ private fun buildGenres(tracks: List<AudioTrack>): List<LibraryCollectionItem> =
     .sortedWith(compareByDescending<LibraryCollectionItem> { it.trackCount }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 
 private fun buildYears(tracks: List<AudioTrack>): List<LibraryCollectionItem> {
-    val latestValidYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) + 1
     return tracks
-        .groupBy { it.year.takeIf { year -> year in 1000..latestValidYear }?.toString() ?: "Unknown" }
+        .groupBy { it.year.takeIf(::isValidLibraryYear)?.toString() ?: "Unknown" }
         .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
         .sortedWith(compareBy<LibraryCollectionItem> { it.title == "Unknown" }.thenByDescending { it.title.toIntOrNull() ?: 0 })
 }
+
+private fun isValidLibraryYear(year: Int): Boolean =
+    year in 1900..(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) + 1)
 
 data class DuplicateGroup(val id: String, val tracks: List<AudioTrack>, val reason: String)
 
@@ -472,7 +474,7 @@ class LibraryViewModel(
             when (kind) {
                 "Folders" -> folderPath(track) == item.id
                 "Genres" -> genreGroupLabel(track.genre) == item.title
-                "Years" -> (track.year.takeIf { it in 1000..9999 }?.toString() ?: "Unknown") == item.id
+                "Years" -> (track.year.takeIf(::isValidLibraryYear)?.toString() ?: "Unknown") == item.id
                 else -> false
             }
         }
@@ -593,7 +595,7 @@ class LibraryViewModel(
 
     fun exportBackup(onReady: (String) -> Unit) {
         viewModelScope.launch {
-            runCatching { LibraryBackupCodec.encode(playlistStore.createBackupSnapshot(_state.value.tracks)) }
+            runCatching { LibraryBackupCodec.encode(playlistStore.createBackupSnapshot(availableTracks(_state.value))) }
                 .onSuccess(onReady)
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not create backup.") }
         }
@@ -781,7 +783,7 @@ class LibraryViewModel(
 
     fun importM3u(name: String, contents: String) {
         val playlistName = name.substringBeforeLast('.', name).ifBlank { name }
-        val availableTracks = _state.value.tracks
+        val availableTracks = availableTracks(_state.value)
         val tracksByUri = availableTracks.associateBy { it.uri.toString() }
         val tracksByFileName = availableTracks
             .filter { it.displayName.isNotBlank() }
@@ -919,6 +921,7 @@ class LibraryViewModel(
         playlist.autoKind != null -> automaticPlaylistTracks(playlist, availableTracks(_state.value), _state.value.playHistory)
         playlist.isLocal -> loadLocalTracks(playlist.id)
         else -> repository.loadPlaylistTracks(playlist)
+            .filterNot { track -> folderIsHidden(track, _state.value.hiddenFolderPaths) }
     }
 
     private fun automaticPlaylistTracks(
@@ -956,10 +959,12 @@ class LibraryViewModel(
                 playlist.autoKind != null -> automaticPlaylistTracks(playlist, tracks, history)
                 playlist.isLocal -> playlistStore.loadTrackUris(playlist.id).mapNotNull(tracksByUri::get)
                 else -> repository.loadPlaylistTracks(playlist)
+                    .filterNot { track -> folderIsHidden(track, _state.value.hiddenFolderPaths) }
             }
             val count = when {
                 playlist.autoKind == "favorites" -> favorites.size
                 playlist.autoKind != null -> playlistTracks.size
+                !playlist.isLocal -> playlistTracks.size
                 else -> playlist.trackCount
             }
             playlist.copy(trackCount = count, artworkUris = playlistTracks.take(4).map { it.uri })
@@ -967,7 +972,7 @@ class LibraryViewModel(
     }
 
     private suspend fun loadLocalTracks(playlistId: Long): List<AudioTrack> {
-        val tracksByUri = _state.value.tracks.associateBy { it.uri }
+        val tracksByUri = availableTracks(_state.value).associateBy { it.uri }
         return playlistStore.loadTrackUris(playlistId).mapNotNull(tracksByUri::get)
     }
 
@@ -983,7 +988,7 @@ class LibraryViewModel(
     }
 
     private fun openGroup(title: String, predicate: (AudioTrack) -> Boolean) {
-        val tracks = _state.value.tracks.filter(predicate)
+        val tracks = availableTracks(_state.value).filter(predicate)
         _state.value = _state.value.copy(browseTitle = title, browseTracks = tracks)
     }
 

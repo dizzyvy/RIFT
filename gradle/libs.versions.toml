@@ -3,6 +3,7 @@ agp = "9.1.1"
 kotlin = "2.4.20"
 composeBom = "2026.09.00"
 activityCompose = "1.13.0"
+coreSplashscreen = "1.2.0"
 lifecycle = "2.11.0"
 media3 = "1.11.1"
 coroutines = "1.10.2"
@@ -14,6 +15,7 @@ compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { module = "androidx.compose.ui:ui" }
 androidx-compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }

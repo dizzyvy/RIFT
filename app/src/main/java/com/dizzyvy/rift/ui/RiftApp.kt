@@ -11,9 +11,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -66,7 +69,13 @@ fun RiftApp(
     val libraryViewModel: LibraryViewModel = viewModel(factory = factory)
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
-    var showPlayer by remember { mutableStateOf(false) }
+    var showPlayer by rememberSaveable { mutableStateOf(false) }
+    var selectedCategory by rememberSaveable { mutableStateOf("Songs") }
+    LaunchedEffect(selectedCategory) {
+        if (libraryState.category != selectedCategory) {
+            libraryViewModel.selectCategory(selectedCategory)
+        }
+    }
     BackHandler(enabled = showPlayer || libraryState.browseTitle != null) {
         if (showPlayer) showPlayer = false else libraryViewModel.closeGroup()
     }
@@ -235,7 +244,10 @@ fun RiftApp(
 
     RiftTheme(mode = themeMode) {
       CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-      androidx.compose.foundation.layout.Box(Modifier.safeDrawingPadding()) {
+      androidx.compose.foundation.layout.Box(
+          Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+      ) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         if (showPlayer) {
             NowPlayingScreen(
                 playback = playback,
@@ -245,6 +257,8 @@ fun RiftApp(
                 onNext = playbackController::skipNext,
                 onPrevious = playbackController::skipPrevious,
                 onSeek = playbackController::seekTo,
+                onSetHighFrequencyPosition = playbackController::setHighFrequencyPosition,
+                onSetAbLoop = playbackController::setAbLoop,
                 onPlayQueueItem = playbackController::playQueueItem,
                 onShuffle = playbackController::setShuffleEnabled,
                 onRepeat = playbackController::setRepeatMode,
@@ -296,7 +310,10 @@ fun RiftApp(
                 onDeleteTracks = { tracks -> requestDeleteUris(tracks.map { it.uri }) },
                 onNotDuplicate = { uris -> libraryViewModel.setTracksNotDuplicate(uris, true) },
                 onClearActionMessage = libraryViewModel::clearActionMessage,
-                onCategory = libraryViewModel::selectCategory,
+                onCategory = { category ->
+                    selectedCategory = category
+                    libraryViewModel.selectCategory(category)
+                },
                 onOpenArtist = libraryViewModel::openArtist,
                 onMergeArtistAlias = libraryViewModel::setArtistAlias,
                 onRemoveArtistAlias = libraryViewModel::removeArtistAlias,
@@ -323,6 +340,7 @@ fun RiftApp(
                     libraryViewModel.setFolderHidden(path, hidden, onComplete)
                 },
             )
+        }
         }
       }
       }
