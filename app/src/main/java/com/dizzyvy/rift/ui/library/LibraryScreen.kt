@@ -377,7 +377,7 @@ fun LibraryScreen(
                                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onPlayTrack(track) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     AlbumTile(track, artworkRepository, Modifier.size(48.dp))
                                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                        Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                                        Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                                         Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
@@ -586,7 +586,7 @@ private fun SearchResults(
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onPlayTrack(track) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     AlbumTile(track, artworkRepository, Modifier.size(48.dp))
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                        Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                         Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -688,13 +688,10 @@ private fun TrackRow(
     ) {
         if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(52.dp)) else AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
-            Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+            Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
             Text(displayValue(track.artist, "Unknown artist"), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (playing) Text("♫", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp))
-        if (!showReorder) TextButton(onClick = onFavorite, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = if (isFavorite) "Remove ${track.title} from favorites" else "Add ${track.title} to favorites" }) {
-            Text(if (isFavorite) "♥" else "♡", color = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-        }
         if (showReorder) {
             Text("⠿", modifier = Modifier.pointerInput(canMoveUp, canMoveDown) {
                 var dragDistance = 0f
@@ -716,6 +713,10 @@ private fun TrackRow(
                 if (!showReorder) DropdownMenuItem(text = { Text(if (isFavorite) "Remove from favorites" else "Add to favorites") }, onClick = { moreMenuOpen = false; onFavorite() })
                 DropdownMenuItem(text = { Text("Go to artist") }, onClick = { moreMenuOpen = false; onGoArtist() })
                 DropdownMenuItem(text = { Text("Go to album") }, onClick = { moreMenuOpen = false; onGoAlbum() })
+                DropdownMenuItem(text = { Text("Edit tags") }, onClick = {
+                    moreMenuOpen = false
+                    Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show()
+                })
                 DropdownMenuItem(text = { Text("Delete from device") }, onClick = { moreMenuOpen = false; onDelete() })
                 DropdownMenuItem(text = { Text("Song details") }, onClick = { moreMenuOpen = false; showDetails = true })
                 DropdownMenuItem(text = { Text("Set as ringtone") }, onClick = {
@@ -744,7 +745,6 @@ private fun TrackRow(
                 })
             }
         }
-        if (!showReorder) TextButton(onClick = onAdd, modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 56.dp).semantics { contentDescription = "Add ${track.title} to playlist or queue" }) { Text("+", style = MaterialTheme.typography.titleLarge) }
     }
     if (showDetails) {
         val format = track.mimeType.substringAfter('/', "").takeIf { it.isNotBlank() }?.uppercase() ?: track.displayName.substringAfterLast('.', "").uppercase().ifBlank { "Unknown" }
@@ -778,7 +778,11 @@ private fun formatAudioSize(bytes: Long): String = when {
 
 private fun formatTime(milliseconds: Long): String {
     val totalSeconds = (milliseconds / 1000).coerceAtLeast(0)
-    return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+    return if (totalSeconds >= 3_600) {
+        "%d:%02d:%02d".format(totalSeconds / 3_600, totalSeconds / 60 % 60, totalSeconds % 60)
+    } else {
+        "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+    }
 }
 
 @Composable

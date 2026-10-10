@@ -32,7 +32,7 @@ fun AlbumArtwork(uri: Uri?, title: String, repository: ArtworkRepository?, modif
     }.value
     Box(modifier.clip(if (fallbackInitial) CircleShape else RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
         if (artwork != null) {
-            Image(artwork.asImageBitmap(), contentDescription = "$title album artwork", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image(artwork.asImageBitmap(), contentDescription = "$title album artwork", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         } else {
             val colors = listOf(Color(0xFFE95865), Color(0xFF438CCD), Color(0xFFFFC833), Color(0xFF50A982), Color(0xFF9B75BC))
             val color = colors[(title.hashCode().toUInt().toLong() % colors.size).toInt()]
