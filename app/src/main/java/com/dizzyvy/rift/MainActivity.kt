@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -47,8 +48,10 @@ class MainActivity : ComponentActivity() {
         themeModeState.value = getPreferences(MODE_PRIVATE).getString(KEY_THEME_MODE, "light") ?: "light"
         accentNameState.value = getPreferences(MODE_PRIVATE).getString(KEY_ACCENT_NAME, "Coral") ?: "Coral"
         setContent {
+            val systemDarkTheme = isSystemInDarkTheme()
             SideEffect {
-                val lightSystemBars = themeModeState.value.equals("light", ignoreCase = true)
+                val lightSystemBars = themeModeState.value.equals("light", ignoreCase = true) ||
+                    (themeModeState.value.equals("system", ignoreCase = true) && !systemDarkTheme)
                 WindowInsetsControllerCompat(window, window.decorView).apply {
                     isAppearanceLightStatusBars = lightSystemBars
                     isAppearanceLightNavigationBars = lightSystemBars

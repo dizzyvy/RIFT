@@ -256,6 +256,7 @@ fun RiftApp(
                 onSearch = libraryViewModel::setSearchQuery,
                 onFavorite = libraryViewModel::setFavorite,
                 onSortOrder = libraryViewModel::setSortOrder,
+                onSortAscending = libraryViewModel::setSortAscending,
                 onHideShortTracks = libraryViewModel::setHideShortTracks,
                 onRequestPermission = onRequestPermission,
                 onRetry = { libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true) },

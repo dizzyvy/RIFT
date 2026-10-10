@@ -191,6 +191,7 @@ data class LibraryUiState(
     val actionMessage: String? = null,
     val playlistImportReport: PlaylistImportReport? = null,
     val sortOrder: String = "Title",
+    val sortAscending: Boolean = true,
     val hideShortTracks: Boolean = false,
     val clickWheelSensitivity: Float = 1f,
     val clickWheelHaptics: Boolean = true,
@@ -232,16 +233,18 @@ class LibraryViewModel(
             runCatching { playlistStore.loadSettings() }.onSuccess { settings ->
                 val current = _state.value
                 val sortOrder = settings[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: current.sortOrder
+                val sortAscending = settings[SETTING_SORT_ASCENDING]?.toBooleanStrictOrNull() ?: (sortOrder != "Date added")
                 val hideShortTracks = settings[SETTING_HIDE_SHORT_TRACKS]?.toBooleanStrictOrNull() ?: current.hideShortTracks
                 val wheelSensitivity = settings[SETTING_WHEEL_SENSITIVITY]?.toFloatOrNull()?.coerceIn(0.5f, 2f) ?: current.clickWheelSensitivity
                 val wheelHaptics = settings[SETTING_WHEEL_HAPTICS]?.toBooleanStrictOrNull() ?: current.clickWheelHaptics
                 _state.value = current.copy(
                     sortOrder = sortOrder,
+                    sortAscending = sortAscending,
                     hideShortTracks = hideShortTracks,
                     clickWheelSensitivity = wheelSensitivity,
                     clickWheelHaptics = wheelHaptics,
                     lyricsTreeUri = settings[SETTING_LYRICS_TREE],
-                    visibleTracks = filterTracks(availableTracks(current), current.searchQuery, sortOrder, hideShortTracks),
+                    visibleTracks = filterTracks(availableTracks(current), current.searchQuery, sortOrder, hideShortTracks, sortAscending),
                 )
             }
         }
@@ -498,6 +501,15 @@ class LibraryViewModel(
         viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_SORT_ORDER to order)) } }
     }
 
+    fun setSortAscending(ascending: Boolean) {
+        val current = _state.value
+        _state.value = current.copy(
+            sortAscending = ascending,
+            visibleTracks = filterTracks(availableTracks(current), current.searchQuery, current.sortOrder, current.hideShortTracks, ascending),
+        )
+        viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_SORT_ASCENDING to ascending.toString())) } }
+    }
+
     fun setHideShortTracks(hide: Boolean) {
         val current = _state.value
         _state.value = current.copy(hideShortTracks = hide, visibleTracks = filterTracks(availableTracks(current), current.searchQuery, current.sortOrder, hide))
@@ -550,18 +562,20 @@ class LibraryViewModel(
                 val saved = playlistStore.loadSettings()
                 val current = _state.value
                 val sortOrder = saved[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: "Title"
+                val sortAscending = saved[SETTING_SORT_ASCENDING]?.toBooleanStrictOrNull() ?: (sortOrder != "Date added")
                 val hideShortTracks = saved[SETTING_HIDE_SHORT_TRACKS]?.toBooleanStrictOrNull() ?: false
                 val wheelSensitivity = saved[SETTING_WHEEL_SENSITIVITY]?.toFloatOrNull()?.coerceIn(0.5f, 2f) ?: 1f
                 val wheelHaptics = saved[SETTING_WHEEL_HAPTICS]?.toBooleanStrictOrNull() ?: true
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
                 _state.value = current.copy(
                     sortOrder = sortOrder,
+                    sortAscending = sortAscending,
                     hideShortTracks = hideShortTracks,
                     clickWheelSensitivity = wheelSensitivity,
                     clickWheelHaptics = wheelHaptics,
                     lyricsTreeUri = saved[SETTING_LYRICS_TREE],
                     hiddenFolderPaths = hiddenFolderPaths,
-                    visibleTracks = filterTracks(current.tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }, current.searchQuery, sortOrder, hideShortTracks),
+                    visibleTracks = filterTracks(current.tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }, current.searchQuery, sortOrder, hideShortTracks, sortAscending),
                     actionMessage = "Backup restored. ${totalTrackRefs - resolvedTrackRefs} track(s) were not found.",
                 )
                 onSettingsRestored(saved)
@@ -917,22 +931,40 @@ class LibraryViewModel(
     private fun filterAlbums(albums: List<AlbumBrowseItem>, query: String): List<AlbumBrowseItem> =
         albums.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) || it.artist.contains(query.trim(), ignoreCase = true) }
 
-    private fun filterTracks(tracks: List<AudioTrack>, query: String, sortOrder: String, hideShortTracks: Boolean): List<AudioTrack> {
+    private fun filterTracks(
+        tracks: List<AudioTrack>,
+        query: String,
+        sortOrder: String,
+        hideShortTracks: Boolean,
+        ascending: Boolean = _state.value.sortAscending,
+    ): List<AudioTrack> {
         val needle = query.trim()
         val filtered = tracks.filter { track ->
             (!hideShortTracks || track.durationMs >= 30_000L) &&
                 (needle.isEmpty() || track.title.contains(needle, ignoreCase = true) ||
                     track.artist.contains(needle, ignoreCase = true) || track.album.contains(needle, ignoreCase = true))
         }
-        return when (sortOrder) {
+        val sorted = when (sortOrder) {
             "Artist" -> filtered.sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.albumArtist.ifBlank { it.artist } }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            "Date added" -> filtered.sortedWith(compareByDescending<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            "Date added" -> filtered.sortedWith(compareBy<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
             "Duration" -> filtered.sortedWith(compareBy<AudioTrack> { it.durationMs }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            else -> filtered.sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.title })
+            else -> filtered.sortedWith(
+                compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { sortableTitle(it.title) }
+                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
+            )
         }
+        return if (ascending) sorted else sorted.asReversed()
     }
+
+    private fun sortableTitle(title: String): String {
+        val withoutLeadingPunctuation = title.trim().replace(Regex("""^[\p{P}\p{S}\s]+"""), "")
+        val withoutArticle = withoutLeadingPunctuation.replace(Regex("""^the\b[\s\p{P}\p{S}]*""", RegexOption.IGNORE_CASE), "")
+        return withoutArticle.replace(Regex("""^[\p{P}\p{S}\s]+"""), "")
+    }
+
     private companion object {
         const val SETTING_SORT_ORDER = "sortOrder"
+        const val SETTING_SORT_ASCENDING = "sortAscending"
         const val SETTING_HIDE_SHORT_TRACKS = "hideShortTracks"
         const val SETTING_WHEEL_SENSITIVITY = "clickWheelSensitivity"
         const val SETTING_WHEEL_HAPTICS = "clickWheelHaptics"

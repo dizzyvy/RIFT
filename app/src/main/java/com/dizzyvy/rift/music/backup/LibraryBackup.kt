@@ -41,9 +41,10 @@ object LibraryBackupCodec {
         val settingsJson = root.optJSONObject("settings") ?: JSONObject()
         val settings = buildMap { settingsJson.keys().forEach { key -> put(key, settingsJson.getString(key)) } }
         require(settings.keys.all { it in SETTING_KEYS }) { "Backup contains unknown settings." }
-        settings["themeMode"]?.let { require(it in setOf("light", "dark", "amoled", "nano")) { "Backup contains an invalid theme." } }
+        settings["themeMode"]?.let { require(it in setOf("system", "light", "dark", "amoled", "nano")) { "Backup contains an invalid theme." } }
         settings["accentName"]?.let { require(it in ACCENTS) { "Backup contains an invalid accent." } }
         settings["sortOrder"]?.let { require(it in SORT_ORDERS) { "Backup contains an invalid sort order." } }
+        settings["sortAscending"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid sort direction." } }
         settings["hideShortTracks"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid short-track setting." } }
         settings["clickWheelSensitivity"]?.let { require(it.toFloatOrNull()?.let { value -> value in 0.5f..2f } == true) { "Backup contains an invalid click-wheel sensitivity." } }
         settings["clickWheelHaptics"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid click-wheel haptic setting." } }
@@ -74,7 +75,7 @@ object LibraryBackupCodec {
 
     private const val MAX_BACKUP_CHARS = 16 * 1024 * 1024
     private val RESERVED_NAMES = setOf("favorites", "recently added", "recently played", "most played", "never played")
-    private val SETTING_KEYS = setOf("themeMode", "accentName", "sortOrder", "hideShortTracks", "hiddenFolders", "clickWheelSensitivity", "clickWheelHaptics")
+    private val SETTING_KEYS = setOf("themeMode", "accentName", "sortOrder", "sortAscending", "hideShortTracks", "hiddenFolders", "clickWheelSensitivity", "clickWheelHaptics")
     private val SORT_ORDERS = setOf("Title", "Artist", "Date added", "Duration")
-    private val ACCENTS = setOf("Chromatic", "Coral", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Silver", "Graphite")
+    private val ACCENTS = setOf("Chromatic", "Cyan", "Coral", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Silver", "Graphite")
 }

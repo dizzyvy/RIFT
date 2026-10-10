@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.compositeOver
@@ -18,7 +19,7 @@ private fun accentColor(name: String): Color = when (name.lowercase()) {
     "pink" -> Color(0xFFD95791)
     "silver" -> Color(0xFF9AA4AE)
     "graphite" -> Color(0xFF454B54)
-    "chromatic" -> NanoCyan
+    "chromatic", "cyan" -> NanoCyan
     else -> RiftPink
 }
 
@@ -28,9 +29,17 @@ fun RiftTheme(
     accent: String = "Coral",
     content: @Composable () -> Unit,
 ) {
-    val accentColor = accentColor(accent)
+    val resolvedMode = when (mode.lowercase()) {
+        "system" -> if (isSystemInDarkTheme()) "dark" else "light"
+        else -> mode.lowercase()
+    }
+    val accentColor = if (resolvedMode == "light" && accent.lowercase() in setOf("chromatic", "cyan")) {
+        Color(0xFF006B78)
+    } else {
+        accentColor(accent)
+    }
     val darkAccentLabel = accent.lowercase() in setOf("gold", "yellow", "orange", "silver")
-    val palette = when (mode.lowercase()) {
+    val palette = when (resolvedMode) {
         "nano" -> darkColorScheme(
             primary = accentColor,
             onPrimary = Color.White,
