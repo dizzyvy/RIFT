@@ -26,54 +26,77 @@ class EmbeddedArtworkRepository(
 ) : ArtworkRepository {
     private val resolver = context.applicationContext.contentResolver
     private val decodeSemaphore = Semaphore(MAX_CONCURRENT_DECODES)
-    private val cache = object : LruCache<String, CachedArtworkValue>(MEMORY_CACHE_KB) {
+    private val cache = object : LruCache<String, CachedArtworkValue>(memoryCacheSizeKb()) {
         override fun sizeOf(key: String, value: CachedArtworkValue): Int {
             val artwork = value.artwork ?: return 1
             return ((artwork.bitmap.byteCount.toLong() + artwork.encodedBytes.size) / 1024L)
                 .coerceAtMost(Int.MAX_VALUE.toLong()).toInt().coerceAtLeast(1)
         }
     }
+    private val uriAliases = object : LruCache<String, String>(URI_ALIAS_CACHE_SIZE) {}
+    private val albumKeys = object : LruCache<String, String>(URI_ALIAS_CACHE_SIZE) {}
 
     override suspend fun load(uri: Uri, maxDimensionPx: Int): Artwork? = withContext(Dispatchers.IO) {
         val sizePx = sizeBucket(maxDimensionPx)
         val trackKey = trackKey(uri)
-        val artworkKey = albumKey(uri) ?: trackKey
-        memoryArtwork(artworkKey, sizePx)?.let { return@withContext it }
+        val uriCacheKey = memoryKey(trackKey, sizePx)
+        uriAliases.get(uriCacheKey)?.let { cachedKey ->
+            cache.get(cachedKey)?.artwork?.let { return@withContext it }
+            uriAliases.remove(uriCacheKey)
+        }
+        val artworkKey = albumKeys.get(uri.toString()) ?: albumKey(uri, trackKey).also {
+            albumKeys.put(uri.toString(), it)
+        }
+        memoryArtwork(artworkKey, sizePx)?.let {
+            uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
+            return@withContext it
+        }
+        if (isKnownMissing(trackKey)) return@withContext null
         val cached = findCachedArtwork(artworkKey, trackKey, sizePx)
         if (cached != null) {
-            if (cached.missing) {
+            if (cached.entry.missing) {
                 rememberMissing(trackKey)
                 return@withContext null
             }
-            val artwork = cached.thumbnail?.let { decodeArtwork(it, sizePx) }
+            val artwork = cached.entry.thumbnail?.let { decodeArtwork(it, sizePx) }
             if (artwork != null) {
                 cache.put(memoryKey(artworkKey, sizePx), CachedArtworkValue(artwork))
+                uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
+                if (cached.key != artworkKey || cached.sizePx != sizePx) {
+                    playlistStore?.cacheArtwork(artworkKey, uri, sizePx, artwork.encodedBytes)
+                }
                 return@withContext artwork
             }
             Log.w(TAG, "Ignoring invalid cached artwork for $uri")
         }
-        if (isKnownMissing(trackKey)) return@withContext null
-
         decodeSemaphore.acquire()
         try {
-            memoryArtwork(artworkKey, sizePx)?.let { return@withContext it }
+            memoryArtwork(artworkKey, sizePx)?.let {
+                uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
+                return@withContext it
+            }
             if (isKnownMissing(trackKey)) return@withContext null
-            extractArtwork(uri, trackKey, artworkKey, sizePx)
+            extractArtwork(uri, trackKey, artworkKey, sizePx)?.also {
+                uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
+            }
         } finally {
             decodeSemaphore.release()
         }
     }
 
-    private suspend fun findCachedArtwork(artworkKey: String, trackKey: String, sizePx: Int): CachedArtwork? {
+    private suspend fun findCachedArtwork(artworkKey: String, trackKey: String, sizePx: Int): CachedArtworkLookup? {
         val store = playlistStore ?: return null
-        store.loadCachedArtwork(artworkKey, sizePx)?.let { return it }
+        store.loadCachedArtwork(artworkKey, sizePx)?.let { return CachedArtworkLookup(it, artworkKey, sizePx) }
         if (artworkKey != trackKey) {
-            store.loadCachedArtwork(trackKey, sizePx)?.let { return it }
+            store.loadCachedArtwork(trackKey, sizePx)?.let { return CachedArtworkLookup(it, trackKey, sizePx) }
         }
         if (sizePx < MAX_ARTWORK_SIZE_PX) {
-            store.loadCachedArtwork(trackKey, MAX_ARTWORK_SIZE_PX)?.let { return it }
+            store.loadCachedArtwork(trackKey, MAX_ARTWORK_SIZE_PX)?.let {
+                return CachedArtworkLookup(it, trackKey, MAX_ARTWORK_SIZE_PX)
+            }
         }
         return store.loadCachedArtwork(trackKey, MISSING_ARTWORK_SIZE_PX)
+            ?.let { CachedArtworkLookup(it, trackKey, MISSING_ARTWORK_SIZE_PX) }
     }
 
     private suspend fun extractArtwork(uri: Uri, trackKey: String, artworkKey: String, sizePx: Int): Artwork? {
@@ -116,8 +139,10 @@ class EmbeddedArtworkRepository(
             BitmapFactory.Options().apply { inSampleSize = calculateSample(bounds.outWidth, bounds.outHeight, maxDimensionPx) },
         ) ?: return null
         val thumbnail = ByteArrayOutputStream().use { output ->
-            check(bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
-                "Could not encode artwork thumbnail."
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
+                bitmap.recycle()
+                Log.w(TAG, "Could not encode artwork thumbnail")
+                return null
             }
             output.toByteArray()
         }
@@ -130,9 +155,9 @@ class EmbeddedArtworkRepository(
         return sample
     }
 
-    private suspend fun albumKey(uri: Uri): String? {
-        val track = playlistStore?.loadCachedTrack(uri) ?: return null
-        return track.albumId.takeIf { it >= 0L }?.let { "album:${track.volumeName}:$it" }
+    private suspend fun albumKey(uri: Uri, trackKey: String): String {
+        val track = playlistStore?.loadCachedTrack(uri) ?: return trackKey
+        return track.albumId.takeIf { it >= 0L }?.let { "album:${track.volumeName}:$it" } ?: trackKey
     }
 
     private fun trackKey(uri: Uri): String = "track:$uri"
@@ -152,21 +177,23 @@ class EmbeddedArtworkRepository(
     private fun memoryKey(key: String, sizePx: Int): String = "$key@$sizePx"
 
     private data class CachedArtworkValue(val artwork: Artwork?)
+    private data class CachedArtworkLookup(val entry: CachedArtwork, val key: String, val sizePx: Int)
 
     private fun sizeBucket(requestedPx: Int): Int = when {
         requestedPx <= SMALL_ARTWORK_SIZE_PX -> SMALL_ARTWORK_SIZE_PX
-        requestedPx <= MEDIUM_ARTWORK_SIZE_PX -> MEDIUM_ARTWORK_SIZE_PX
         else -> MAX_ARTWORK_SIZE_PX
     }
 
     private companion object {
         const val TAG = "RIFTArtwork"
-        const val MEMORY_CACHE_KB = 16 * 1024
-        const val MAX_CONCURRENT_DECODES = 2
-        const val SMALL_ARTWORK_SIZE_PX = 128
-        const val MEDIUM_ARTWORK_SIZE_PX = 256
+        const val MAX_CONCURRENT_DECODES = 4
+        const val SMALL_ARTWORK_SIZE_PX = 192
         const val MAX_ARTWORK_SIZE_PX = 512
         const val MISSING_ARTWORK_SIZE_PX = 0
         const val JPEG_QUALITY = 88
+        const val URI_ALIAS_CACHE_SIZE = 4_096
+
+        fun memoryCacheSizeKb(): Int =
+            (Runtime.getRuntime().maxMemory() / 1024L / 8L).coerceIn(1_024L, Int.MAX_VALUE.toLong()).toInt()
     }
 }

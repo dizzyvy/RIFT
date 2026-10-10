@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -163,7 +164,7 @@ fun NowPlayingScreen(
                 onDragEnd = { if (drag > 48f) onNext() else if (drag < -48f) onPrevious(); drag = 0f },
                 onHorizontalDrag = { change, amount -> change.consume(); drag += amount },
             )
-        })
+        }, contentScale = ContentScale.Fit)
         ShrikhandHeading(
             track.title,
             MaterialTheme.typography.titleLarge,
