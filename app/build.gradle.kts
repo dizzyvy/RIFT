@@ -5,15 +5,16 @@ plugins {
 }
 
 android {
-    namespace = "com.dizzyvy.sjmusicapp"
+    namespace = "com.dizzyvy.rift"
     compileSdk = 37
 
     defaultConfig {
+        // Keep stable so existing installations retain their app-owned data during the rebrand.
         applicationId = "com.dizzyvy.sjmusicapp"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "0.4.0"
     }
 
     compileOptions {

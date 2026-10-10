@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SJMusicApp"
+rootProject.name = "RIFT"
 include(":app")

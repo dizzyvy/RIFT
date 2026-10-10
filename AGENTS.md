@@ -1,7 +1,6 @@
 # RIFT Repository Guide
 
 ## Purpose
-
 This file gives coding agents a reliable starting point for work in this repository. Treat the checked-in source, configuration, and documentation as authoritative. Update this guide when verified project workflows or conventions change.
 
 ## Orienting in the repository

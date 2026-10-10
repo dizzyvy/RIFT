@@ -1,6 +1,8 @@
 # RIFT
 
-A small, local music player for Android with a bright, click-wheel-era portable-player feel. The first version scans audio on the phone and removable storage, then plays it through Android's media session so lock-screen controls and Bluetooth/headset buttons work.
+RIFT is a local Android music player with a bright, click-wheel-era portable-player feel. It scans audio on the phone and removable storage, then plays it through Android's media session so lock-screen controls and Bluetooth/headset buttons work.
+
+The launcher uses the RIFT Queen artwork. The Android application ID remains stable so this rebrand can update existing installations without resetting their app data.
 
 ## Requirements
 
@@ -35,3 +37,7 @@ Playback formats depend on the codecs available on the phone. Android's built-in
 ## Install on a phone
 
 Build `app/build/outputs/apk/debug/app-debug.apk`, copy it to the phone, open it in My Files, and approve Android's install prompt if shown. The debug APK is signed for development installs and is not a Play Store release.
+
+## Download
+
+[Download the RIFT v0.4.0 debug APK](releases/RIFT-v0.4.0-debug.apk).
