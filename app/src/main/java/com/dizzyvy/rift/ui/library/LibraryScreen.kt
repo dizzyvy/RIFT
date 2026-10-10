@@ -548,7 +548,7 @@ private fun CollectionList(
             val hidden = isFolderList && item.id in hiddenFolderPaths
             val subtitle = when {
                 hidden -> "Hidden from library · " + item.id
-                item.subtitle == "Year" -> countLabel(item.trackCount, "song") + " · " + item.title
+                item.subtitle == "Year" -> countLabel(item.trackCount, "song")
                 item.subtitle == item.id -> countLabel(item.trackCount, "song")
                 else -> item.subtitle + " · " + countLabel(item.trackCount, "song")
             }

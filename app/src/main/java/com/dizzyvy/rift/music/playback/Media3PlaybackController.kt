@@ -13,6 +13,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.dizzyvy.rift.R
 import com.dizzyvy.rift.music.model.AudioTrack
+import com.dizzyvy.rift.music.library.cleanTrackMetadata
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.Executor
@@ -279,10 +280,11 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     }
 
     private fun toMediaItem(track: AudioTrack): MediaItem {
+        val cleanedTrack = cleanTrackMetadata(track)
         val metadata = MediaMetadata.Builder()
-            .setTitle(track.title)
-            .setArtist(track.artist)
-            .setAlbumTitle(track.album)
+            .setTitle(cleanedTrack.title)
+            .setArtist(cleanedTrack.artist)
+            .setAlbumTitle(cleanedTrack.album)
             .build()
 
         return MediaItem.Builder()
@@ -329,7 +331,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
 
     private fun MediaItem.toAudioTrack(): AudioTrack? {
         val uri = localConfiguration?.uri ?: return null
-        return AudioTrack(
+        return cleanTrackMetadata(AudioTrack(
             id = mediaId.toLongOrNull() ?: uri.toString().hashCode().toLong(),
             uri = uri,
             title = mediaMetadata.title?.toString()?.takeIf(String::isNotBlank)
@@ -337,7 +339,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             artist = mediaMetadata.artist?.toString().orEmpty(),
             album = mediaMetadata.albumTitle?.toString().orEmpty(),
             durationMs = 0L,
-        )
+        ))
     }
 
     private fun updatePositionPolling() {

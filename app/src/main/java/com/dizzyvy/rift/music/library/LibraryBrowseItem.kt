@@ -17,8 +17,9 @@ private val artistSplitPattern = Regex("""\s*(?:,|&|\bfeat\.?)\s*""", RegexOptio
 private val artistWhitespacePattern = Regex("""\s+""")
 
 fun artistNamesForTrack(track: AudioTrack, aliases: Map<String, String> = emptyMap()): List<String> {
-    val preferred = track.albumArtist.trim().takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }
-        ?: track.artist
+    val cleaned = cleanTrackMetadata(track)
+    val preferred = cleaned.albumArtist.trim().takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }
+        ?: cleaned.artist
     return preferred.split(artistSplitPattern)
         .map { it.trim().replace(artistWhitespacePattern, " ") }
         .filter { it.isNotBlank() && !it.equals("<unknown>", true) }
@@ -43,10 +44,3 @@ fun artistGroupKeys(track: AudioTrack, aliases: Map<String, String> = emptyMap()
     artistNamesForTrack(track, aliases).map(::normalizeArtistName).distinct()
 
 fun artistGroupKey(track: AudioTrack, aliases: Map<String, String> = emptyMap()): String = artistGroupKeys(track, aliases).first()
-
-fun albumGroupKey(track: AudioTrack, aliases: Map<String, String> = emptyMap()): String {
-    if (track.albumId >= 0) return "${track.volumeName}:${track.albumId}"
-    val albumArtist = track.albumArtist.ifBlank { artistNamesForTrack(track, aliases).joinToString(", ") }
-    val canonicalAlbumArtist = resolveArtistAlias(albumArtist, aliases)
-    return "${track.album.trim().lowercase()}|${normalizeArtistName(canonicalAlbumArtist)}"
-}

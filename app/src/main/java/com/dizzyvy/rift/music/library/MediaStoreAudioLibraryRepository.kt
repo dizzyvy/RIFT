@@ -30,13 +30,16 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
 
     override suspend fun loadArtists(): List<ArtistBrowseItem> = withContext(Dispatchers.IO) {
         queryAllTracks().tracks.groupBy(::artistGroupKey)
-            .map { (id, tracks) -> ArtistBrowseItem(id, tracks.first().artist.ifBlank { "Unknown artist" }, tracks.size) }
+            .map { (id, tracks) -> ArtistBrowseItem(id, artistNamesForTrack(tracks.first()).first(), tracks.size) }
             .sortedWith(browseComparator { it.name })
     }
 
     override suspend fun loadAlbums(): List<AlbumBrowseItem> = withContext(Dispatchers.IO) {
         queryAllTracks().tracks.groupBy(::albumGroupKey)
-            .map { (id, tracks) -> AlbumBrowseItem(id, tracks.first().album.ifBlank { "Unknown album" }, tracks.first().artist, tracks.size) }
+            .map { (id, tracks) ->
+                val first = tracks.first()
+                AlbumBrowseItem(id, first.album, first.albumArtist.ifBlank { first.artist }, tracks.size)
+            }
             .sortedWith(browseComparator { it.title })
     }
 
@@ -96,7 +99,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             total = maxOf(total, processed)
             complete = complete && outcome.complete
         }
-        return QueryOutcome(tracks.distinctBy { it.uri }.sortedWith(browseComparator { it.title }), complete, processed)
+        return QueryOutcome(tracks.map(::cleanTrackMetadata).distinctBy { it.uri }.sortedWith(browseComparator { it.title }), complete, processed)
     }
 
     private fun queryCollection(

@@ -22,6 +22,8 @@ import com.dizzyvy.rift.music.library.artistGroupKeys
 import com.dizzyvy.rift.music.library.artistNamesForTrack
 import com.dizzyvy.rift.music.library.resolveArtistAlias
 import com.dizzyvy.rift.music.library.albumGroupKey
+import com.dizzyvy.rift.music.library.cleanTrackMetadata
+import com.dizzyvy.rift.music.library.genreGroupLabel
 import com.dizzyvy.rift.music.model.AudioTrack
 import com.dizzyvy.rift.music.backup.LibraryBackupCodec
 import com.dizzyvy.rift.music.playback.PlaybackController
@@ -49,17 +51,27 @@ private fun folderIsHidden(track: AudioTrack, hiddenFolderPaths: Set<String>): B
 private fun buildArtists(tracks: List<AudioTrack>, aliases: Map<String, String> = emptyMap()): List<ArtistBrowseItem> = tracks
     .flatMap { track -> artistNamesForTrack(track, aliases).map { it to track } }
     .groupBy { (name, _) -> normalizeArtistName(name) }
-    .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size, entries.first().second.uri) }
+    .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size) }
     .sortedWith(compareBy<ArtistBrowseItem> { if (librarySection(it.name) == '#') 0 else 1 }.thenBy { librarySection(it.name) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 
 private fun buildAlbums(tracks: List<AudioTrack>, aliases: Map<String, String> = emptyMap()): List<AlbumBrowseItem> = tracks.groupBy { albumGroupKey(it, aliases) }
     .map { (id, items) ->
         val first = items.first()
-        val title = first.album.takeUnless { it.isBlank() || it.equals("<unknown>", true) } ?: "Unknown album"
-        val artist = artistNamesForTrack(first, aliases).joinToString(", ").ifBlank { "Unknown artist" }
+        val title = first.album
+        val artist = first.albumArtist.ifBlank { artistNamesForTrack(first, aliases).joinToString(", ") }
         AlbumBrowseItem(id, title, artist, items.size, first.uri)
     }
     .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+
+private fun buildGenres(tracks: List<AudioTrack>): List<LibraryCollectionItem> = tracks
+    .groupBy { genreGroupLabel(it.genre) }
+    .map { (genre, items) -> LibraryCollectionItem(genre.lowercase(), genre, "Genre", items.size, items.first().uri) }
+    .sortedWith(compareByDescending<LibraryCollectionItem> { it.trackCount }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+
+private fun buildYears(tracks: List<AudioTrack>): List<LibraryCollectionItem> = tracks
+    .groupBy { it.year.takeIf { year -> year in 1000..9999 }?.toString() ?: "Unknown" }
+    .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
+    .sortedWith(compareBy<LibraryCollectionItem> { it.title == "Unknown" }.thenByDescending { it.title.toIntOrNull() ?: 0 })
 
 private fun buildDuplicateTracks(tracks: List<AudioTrack>, aliases: Map<String, String>): List<AudioTrack> = tracks.groupBy { track ->
     "${track.title.trim().lowercase()}|${normalizeArtistName(artistNamesForTrack(track, aliases).first())}|${track.durationMs / 1000L}"
@@ -162,7 +174,7 @@ class LibraryViewModel(
         _state.value = _state.value.copy(isLoading = true, permissionRequired = false, message = null, scanProcessed = 0, scanTotal = null)
         viewModelScope.launch {
             try {
-                val cachedTracks = playlistStore.loadCachedTracks()
+                val cachedTracks = playlistStore.loadCachedTracks().map(::cleanTrackMetadata)
                 val settings = playlistStore.loadSettings()
                 val mediaVersion = repository.libraryVersion()
                 val artistAliases = playlistStore.loadArtistAliases()
@@ -174,10 +186,8 @@ class LibraryViewModel(
                     val cachedAlbums = buildAlbums(availableCachedTracks, artistAliases)
                     val cachedFolders = availableCachedTracks.mapNotNull { track -> folderPath(track).takeIf(String::isNotBlank)?.let { it to track } }
                         .groupBy({ it.first }, { it.second }).map { (path, items) -> LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri) }
-                    val cachedGenres = availableCachedTracks.filter { it.genre.isNotBlank() && !it.genre.equals("<unknown>", true) }
-                        .groupBy { it.genre.trim().lowercase() }.map { (_, items) -> LibraryCollectionItem(items.first().genre.trim().lowercase(), items.first().genre.trim(), "Genre", items.size, items.first().uri) }
-                    val cachedYears = availableCachedTracks.filter { it.year in 1000..9999 }.groupBy { it.year.toString() }
-                        .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
+                    val cachedGenres = buildGenres(availableCachedTracks)
+                    val cachedYears = buildYears(availableCachedTracks)
                     val cachedDuplicates = buildDuplicateTracks(availableCachedTracks, artistAliases)
                     val cachedFavorites = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                     val cachedHistory = playlistStore.loadPlayHistory()
@@ -217,10 +227,11 @@ class LibraryViewModel(
                         _state.value = current.copy(scanProcessed = processed, scanTotal = total)
                     }
                 }
+                val cleanedScannedTracks = scan.tracks.map(::cleanTrackMetadata)
                 if (scan.tracks.isNotEmpty()) playlistStore.cacheTracks(generation, scan.tracks)
                 if (scan.complete) playlistStore.finishTrackCacheRefresh(generation)
                 if (scan.complete) playlistStore.saveSettings(mapOf(SETTING_MEDIA_VERSION to mediaVersion))
-                val tracks = if (scan.complete || cachedTracks.isEmpty()) scan.tracks else cachedTracks
+                val tracks = if (scan.complete || cachedTracks.isEmpty()) cleanedScannedTracks else cachedTracks
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
                 val availableTracks = tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
@@ -235,13 +246,8 @@ class LibraryViewModel(
                 }.groupBy({ it.first }, { it.second }).map { (path, items) ->
                     LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri)
                 }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-                val genres = availableTracks.filter { it.genre.isNotBlank() && !it.genre.equals("<unknown>", true) }
-                    .groupBy { it.genre.trim().lowercase() }.map { (_, items) ->
-                        LibraryCollectionItem(items.first().genre.trim().lowercase(), items.first().genre.trim(), "Genre", items.size, items.first().uri)
-                    }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-                val years = availableTracks.filter { it.year in 1000..9999 }.groupBy { it.year.toString() }
-                    .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
-                    .sortedByDescending { it.title.toIntOrNull() ?: 0 }
+                val genres = buildGenres(availableTracks)
+                val years = buildYears(availableTracks)
                 val duplicateTracks = buildDuplicateTracks(availableTracks, resolvedAliases)
                 _state.value = _state.value.copy(
                     tracks = tracks,
@@ -308,8 +314,8 @@ class LibraryViewModel(
         openGroup(item.title) { track ->
             when (kind) {
                 "Folders" -> folderPath(track) == item.id
-                "Genres" -> track.genre.equals(item.title, ignoreCase = true)
-                "Years" -> track.year.toString() == item.id
+                "Genres" -> genreGroupLabel(track.genre) == item.title
+                "Years" -> (track.year.takeIf { it in 1000..9999 }?.toString() ?: "Unknown") == item.id
                 else -> false
             }
         }
