@@ -24,6 +24,7 @@ import com.dizzyvy.rift.music.library.resolveArtistAlias
 import com.dizzyvy.rift.music.library.albumGroupKey
 import com.dizzyvy.rift.music.library.cleanTrackMetadata
 import com.dizzyvy.rift.music.library.genreGroupLabel
+import com.dizzyvy.rift.music.library.duplicatePairKey
 import com.dizzyvy.rift.music.model.AudioTrack
 import com.dizzyvy.rift.music.backup.LibraryBackupCodec
 import com.dizzyvy.rift.music.playback.PlaybackController
@@ -32,10 +33,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.distinctUntilChangedBy
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import android.os.SystemClock
 
 private fun folderPath(track: AudioTrack): String = track.relativePath.trimEnd('/').ifBlank {
     track.filePath.substringBeforeLast('/', "")
@@ -73,9 +72,15 @@ private fun buildYears(tracks: List<AudioTrack>): List<LibraryCollectionItem> = 
     .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
     .sortedWith(compareBy<LibraryCollectionItem> { it.title == "Unknown" }.thenByDescending { it.title.toIntOrNull() ?: 0 })
 
-private fun buildDuplicateTracks(tracks: List<AudioTrack>, aliases: Map<String, String>): List<AudioTrack> = tracks.groupBy { track ->
+private fun buildDuplicateTracks(tracks: List<AudioTrack>, aliases: Map<String, String>, notDuplicatePairs: Set<String>): List<AudioTrack> = tracks.groupBy { track ->
     "${track.title.trim().lowercase()}|${normalizeArtistName(artistNamesForTrack(track, aliases).first())}|${track.durationMs / 1000L}"
-}.filterValues { it.size > 1 }.values.flatten().distinctBy { it.uri }
+}.filterValues { group ->
+    group.size > 1 && group.indices.any { first ->
+        (first + 1 until group.size).any { second ->
+            duplicatePairKey(group[first].uri.toString(), group[second].uri.toString()) !in notDuplicatePairs
+        }
+    }
+}.values.flatten().distinctBy { it.uri }
     .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 
 data class LibraryUiState(
@@ -145,23 +150,44 @@ class LibraryViewModel(
             }
         }
         viewModelScope.launch {
-            playback.snapshot
-                .map { it.currentTrack }
-                .filterNotNull()
-                .distinctUntilChangedBy { it.uri }
-                .collect { track ->
-                    runCatching {
-                        playlistStore.recordPlay(track.uri, System.currentTimeMillis())
-                        val history = playlistStore.loadPlayHistory()
-                        val current = _state.value
-                        val active = current.activePlaylist
-                        val browseTracks = if (active?.isAuto == true && active.autoKind != "favorites") {
-                            automaticPlaylistTracks(active, availableTracks(current), history)
-                        } else current.browseTracks
-                        _state.value = current.copy(playHistory = history, browseTracks = browseTracks)
-                    }
-                }
+        var currentUri: String? = null
+        var listenedMs = 0L
+        var lastTickMs = 0L
+        var countedCurrentPlay = false
+        playback.snapshot.collect { snapshot ->
+            val track = snapshot.currentTrack
+            val uri = track?.uri?.toString()
+            val now = SystemClock.elapsedRealtime()
+            if (uri != currentUri) {
+                currentUri = uri
+                listenedMs = 0L
+                countedCurrentPlay = false
+                lastTickMs = if (snapshot.isPlaying && track != null) now else 0L
+            } else if (snapshot.isPlaying && track != null) {
+                if (lastTickMs != 0L) listenedMs += (now - lastTickMs).coerceIn(0L, 2_000L)
+                lastTickMs = now
+            } else {
+                lastTickMs = 0L
+            }
+            if (track == null || countedCurrentPlay) return@collect
+            val thresholdMs = track.durationMs.takeIf { it > 0L }
+                ?.let { minOf(30_000L, (it + 1L) / 2L) } ?: 30_000L
+            if (listenedMs < thresholdMs) return@collect
+            countedCurrentPlay = true
+            val playedAtMs = System.currentTimeMillis()
+            runCatching {
+                playlistStore.recordPlay(track.uri, playedAtMs)
+                val history = playlistStore.loadPlayHistory()
+                val current = _state.value
+                val active = current.activePlaylist
+                val browseTracks = if (active?.isAuto == true && active.autoKind != "favorites") {
+                    automaticPlaylistTracks(active, availableTracks(current), history)
+                } else current.browseTracks
+                _state.value = current.copy(playHistory = history, browseTracks = browseTracks)
+            }
+                .onFailure { countedCurrentPlay = false; _state.value = _state.value.copy(actionMessage = it.message ?: "Could not save play history.") }
         }
+    }
     }
 
     fun loadLibrary(hasAudioPermission: Boolean, forceRefresh: Boolean = false) {
@@ -184,11 +210,12 @@ class LibraryViewModel(
                     val availableCachedTracks = cachedTracks.filterNot { folderIsHidden(it, cachedHidden) }
                     val cachedArtists = buildArtists(availableCachedTracks, artistAliases)
                     val cachedAlbums = buildAlbums(availableCachedTracks, artistAliases)
+                    val cachedNotDuplicatePairs = playlistStore.loadNotDuplicatePairs()
                     val cachedFolders = availableCachedTracks.mapNotNull { track -> folderPath(track).takeIf(String::isNotBlank)?.let { it to track } }
                         .groupBy({ it.first }, { it.second }).map { (path, items) -> LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size, items.firstOrNull()?.uri) }
                     val cachedGenres = buildGenres(availableCachedTracks)
                     val cachedYears = buildYears(availableCachedTracks)
-                    val cachedDuplicates = buildDuplicateTracks(availableCachedTracks, artistAliases)
+                    val cachedDuplicates = buildDuplicateTracks(availableCachedTracks, artistAliases, cachedNotDuplicatePairs)
                     val cachedFavorites = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                     val cachedHistory = playlistStore.loadPlayHistory()
                     val cachedPlaylists = withPlaylistCounts(repository.loadPlaylists() + playlistStore.loadPlaylists(), availableCachedTracks, cachedFavorites, cachedHistory)
@@ -239,6 +266,7 @@ class LibraryViewModel(
                 val playHistory = playlistStore.loadPlayHistory()
                 val playlistsWithCounts = withPlaylistCounts(playlists, availableTracks, favoriteUris, playHistory)
                 val resolvedAliases = playlistStore.loadArtistAliases()
+                val notDuplicatePairs = playlistStore.loadNotDuplicatePairs()
                 val artists = buildArtists(availableTracks, resolvedAliases)
                 val albums = buildAlbums(availableTracks, resolvedAliases)
                 val folders = tracks.mapNotNull { track ->
@@ -248,7 +276,7 @@ class LibraryViewModel(
                 }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
                 val genres = buildGenres(availableTracks)
                 val years = buildYears(availableTracks)
-                val duplicateTracks = buildDuplicateTracks(availableTracks, resolvedAliases)
+                val duplicateTracks = buildDuplicateTracks(availableTracks, resolvedAliases, notDuplicatePairs)
                 _state.value = _state.value.copy(
                     tracks = tracks,
                     artistAliases = resolvedAliases,
@@ -329,6 +357,25 @@ class LibraryViewModel(
                     else loadLibrary(hasAudioPermission = !_state.value.permissionRequired, forceRefresh = true)
                 }
                 .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update hidden folders.") }
+        }
+    }
+
+    fun setTracksNotDuplicate(uris: List<Uri>, notDuplicate: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                playlistStore.setTracksNotDuplicate(uris, notDuplicate)
+                playlistStore.loadNotDuplicatePairs()
+            }.onSuccess { pairs ->
+                val current = _state.value
+                val tracks = availableTracks(current)
+                val duplicates = buildDuplicateTracks(tracks, current.artistAliases, pairs)
+                _state.value = current.copy(
+                    duplicateTracks = duplicates,
+                    visibleDuplicateTracks = filterTracks(duplicates, current.searchQuery, current.sortOrder, current.hideShortTracks),
+                )
+            }.onFailure {
+                _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update duplicate exclusions.")
+            }
         }
     }
 

@@ -18,11 +18,17 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import com.dizzyvy.rift.music.library.SqlitePlaylistStore
+import java.util.concurrent.Executors
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val playbackIo = Executors.newSingleThreadExecutor()
+    private val playbackStore by lazy { SqlitePlaylistStore(applicationContext) }
+    @Volatile private var destroyed = false
     private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
         if (change <= AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
@@ -52,7 +58,7 @@ class PlaybackService : MediaSessionService() {
     }
     private val playerListener = object : androidx.media3.common.Player.Listener {
         override fun onEvents(player: androidx.media3.common.Player, events: androidx.media3.common.Player.Events) {
-            savePlaybackState()
+            if (!destroyed) savePlaybackState()
         }
     }
 
@@ -71,7 +77,6 @@ class PlaybackService : MediaSessionService() {
                 }
             })
             addListener(playerListener)
-            restorePlaybackState(this)
         }
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(object : MediaSession.Callback {
@@ -80,29 +85,53 @@ class PlaybackService : MediaSessionService() {
                     controller: MediaSession.ControllerInfo,
                     isForPlayback: Boolean,
                 ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-                    val prefs = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-                    val items = readSavedQueue(prefs)
-                    if (items.isEmpty()) return Futures.immediateFailedFuture(IllegalStateException("No saved local track"))
-                    val index = prefs.getInt(KEY_INDEX, 0).coerceIn(0, items.lastIndex)
-                    if (isForPlayback) {
-                        mediaSession.player.shuffleModeEnabled = prefs.getBoolean(KEY_SHUFFLE, false)
-                        mediaSession.player.repeatMode = prefs.getInt(KEY_REPEAT, androidx.media3.common.Player.REPEAT_MODE_OFF)
+                    val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                    playbackIo.execute {
+                        runCatching { loadOrMigratePlaybackState() }
+                            .onSuccess { state ->
+                                val items = readSavedQueue(state)
+                                if (items.isEmpty()) {
+                                    result.setException(IllegalStateException("No saved local track"))
+                                } else {
+                                    val index = state[KEY_INDEX]?.toIntOrNull()?.coerceIn(0, items.lastIndex) ?: 0
+                                    val position = state[KEY_POSITION]?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+                                    handler.post {
+                                        if (isForPlayback) {
+                                            mediaSession.player.shuffleModeEnabled = state[KEY_SHUFFLE].toBoolean()
+                                            mediaSession.player.repeatMode = state[KEY_REPEAT]?.toIntOrNull()
+                                                ?: androidx.media3.common.Player.REPEAT_MODE_OFF
+                                        }
+                                        result.set(MediaSession.MediaItemsWithStartPosition(items, index, position))
+                                    }
+                                }
+                            }
+                            .onFailure(result::setException)
                     }
-                    return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(items, index, prefs.getLong(KEY_POSITION, 0L).coerceAtLeast(0L)))
+                    return result
                 }
             })
             .build()
+        playbackIo.execute {
+            runCatching { loadOrMigratePlaybackState() }
+                .onSuccess { state -> handler.post {
+                    if (!destroyed && player.mediaItemCount == 0) restorePlaybackState(player, state)
+                } }
+                .onFailure { android.util.Log.e(TAG, "Could not restore saved playback state", it) }
+        }
         handler.postDelayed(checkpoint, CHECKPOINT_MS)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        destroyed = true
         handler.removeCallbacks(checkpoint)
         savePlaybackState()
         mediaSession?.player?.release()
         mediaSession?.release()
         mediaSession = null
+        playbackIo.execute { playbackStore.close() }
+        playbackIo.shutdown()
         abandonAudioFocus()
         super.onDestroy()
     }
@@ -126,26 +155,21 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun restorePlaybackState(player: ExoPlayer) {
-        val prefs = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-        val items = readSavedQueue(prefs)
+    private fun restorePlaybackState(player: ExoPlayer, state: Map<String, String>) {
+        val items = readSavedQueue(state)
         if (items.isEmpty()) return
-        player.repeatMode = prefs.getInt(KEY_REPEAT, androidx.media3.common.Player.REPEAT_MODE_OFF)
-        player.shuffleModeEnabled = prefs.getBoolean(KEY_SHUFFLE, false)
-        val index = prefs.getInt(KEY_INDEX, 0).coerceIn(0, items.lastIndex)
-        player.setMediaItems(items, index, prefs.getLong(KEY_POSITION, 0L).coerceAtLeast(0L))
+        player.repeatMode = state[KEY_REPEAT]?.toIntOrNull() ?: androidx.media3.common.Player.REPEAT_MODE_OFF
+        player.shuffleModeEnabled = state[KEY_SHUFFLE].toBoolean()
+        val index = state[KEY_INDEX]?.toIntOrNull()?.coerceIn(0, items.lastIndex) ?: 0
+        val position = state[KEY_POSITION]?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        player.setMediaItems(items, index, position)
         player.prepare()
     }
 
     private fun savePlaybackState() {
         val player = mediaSession?.player ?: return
         if (player.mediaItemCount == 0) {
-            getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
-                .remove(KEY_URI)
-                .remove(KEY_QUEUE)
-                .remove(KEY_INDEX)
-                .remove(KEY_POSITION)
-                .apply()
+            playbackIo.execute { playbackStore.savePlaybackStateSync(emptyMap()) }
             return
         }
         val item = player.currentMediaItem ?: return
@@ -162,23 +186,24 @@ class PlaybackService : MediaSessionService() {
                 .put("artist", queuedMetadata.artist?.toString().orEmpty())
                 .put("album", queuedMetadata.albumTitle?.toString().orEmpty()))
         }
-        getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
-            .putString(KEY_URI, uri.toString())
-            .putString(KEY_TITLE, metadata.title?.toString().orEmpty())
-            .putString(KEY_ARTIST, metadata.artist?.toString().orEmpty())
-            .putString(KEY_ALBUM, metadata.albumTitle?.toString().orEmpty())
-            .putString(KEY_QUEUE, queue.toString())
-            .putInt(KEY_INDEX, player.currentMediaItemIndex.coerceAtLeast(0))
-            .putLong(KEY_POSITION, player.currentPosition.coerceAtLeast(0L))
-            .putBoolean(KEY_SHUFFLE, player.shuffleModeEnabled)
-            .putInt(KEY_REPEAT, player.repeatMode)
-            .apply()
+        val savedState = mapOf(
+            KEY_URI to uri.toString(),
+            KEY_TITLE to metadata.title?.toString().orEmpty(),
+            KEY_ARTIST to metadata.artist?.toString().orEmpty(),
+            KEY_ALBUM to metadata.albumTitle?.toString().orEmpty(),
+            KEY_QUEUE to queue.toString(),
+            KEY_INDEX to player.currentMediaItemIndex.coerceAtLeast(0).toString(),
+            KEY_POSITION to player.currentPosition.coerceAtLeast(0L).toString(),
+            KEY_SHUFFLE to player.shuffleModeEnabled.toString(),
+            KEY_REPEAT to player.repeatMode.toString(),
+        )
+        playbackIo.execute { playbackStore.savePlaybackStateSync(savedState) }
     }
 
-    private fun readSavedQueue(prefs: android.content.SharedPreferences): List<MediaItem> {
+    private fun readSavedQueue(state: Map<String, String>): List<MediaItem> {
         val result = mutableListOf<MediaItem>()
         runCatching {
-            val queue = JSONArray(prefs.getString(KEY_QUEUE, "[]") ?: "[]")
+            val queue = JSONArray(state[KEY_QUEUE] ?: "[]")
             for (index in 0 until queue.length()) {
                 val entry = queue.optJSONObject(index) ?: continue
                 val uriString = entry.optString("uri").takeIf(String::isNotBlank) ?: continue
@@ -191,11 +216,11 @@ class PlaybackService : MediaSessionService() {
             }
         }
         if (result.isEmpty()) {
-            prefs.getString(KEY_URI, null)?.let { rawUri ->
+            state[KEY_URI]?.let { rawUri ->
                 val metadata = MediaMetadata.Builder()
-                    .setTitle(prefs.getString(KEY_TITLE, "Untitled track"))
-                    .setArtist(prefs.getString(KEY_ARTIST, ""))
-                    .setAlbumTitle(prefs.getString(KEY_ALBUM, ""))
+                    .setTitle(state[KEY_TITLE] ?: "Untitled track")
+                    .setArtist(state[KEY_ARTIST].orEmpty())
+                    .setAlbumTitle(state[KEY_ALBUM].orEmpty())
                     .build()
                 result += MediaItem.Builder().setUri(Uri.parse(rawUri)).setMediaMetadata(metadata).build()
             }
@@ -203,7 +228,28 @@ class PlaybackService : MediaSessionService() {
         return result
     }
 
+    private fun loadOrMigratePlaybackState(): Map<String, String> {
+        val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+        val legacy = buildMap {
+            preferences.getString(KEY_URI, null)?.let { put(KEY_URI, it) }
+            preferences.getString(KEY_QUEUE, null)?.let { put(KEY_QUEUE, it) }
+            preferences.getString(KEY_TITLE, null)?.let { put(KEY_TITLE, it) }
+            preferences.getString(KEY_ARTIST, null)?.let { put(KEY_ARTIST, it) }
+            preferences.getString(KEY_ALBUM, null)?.let { put(KEY_ALBUM, it) }
+            if (preferences.contains(KEY_INDEX)) put(KEY_INDEX, preferences.getInt(KEY_INDEX, 0).toString())
+            if (preferences.contains(KEY_POSITION)) put(KEY_POSITION, preferences.getLong(KEY_POSITION, 0L).toString())
+            if (preferences.contains(KEY_SHUFFLE)) put(KEY_SHUFFLE, preferences.getBoolean(KEY_SHUFFLE, false).toString())
+            if (preferences.contains(KEY_REPEAT)) put(KEY_REPEAT, preferences.getInt(KEY_REPEAT, 0).toString())
+        }
+        val savedState = playbackStore.migratePlaybackStateSync(legacy)
+        if (savedState.isNotEmpty() && preferences.all.isNotEmpty()) {
+            check(preferences.edit().clear().commit()) { "Could not clear migrated playback preferences." }
+        }
+        return savedState
+    }
+
     private companion object {
+        const val TAG = "RIFTPlaybackService"
         const val PREFERENCES = "last_playback"
         const val KEY_URI = "uri"
         const val KEY_QUEUE = "queue"

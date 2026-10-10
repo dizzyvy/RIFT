@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.net.Uri
 import org.json.JSONObject
+import org.json.JSONArray
 import com.dizzyvy.rift.music.model.AudioTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +29,8 @@ interface PlaylistStore {
     suspend fun setFavorite(uri: Uri, favorite: Boolean)
     suspend fun recordPlay(uri: Uri, playedAtMs: Long)
     suspend fun loadPlayHistory(): Map<String, TrackPlayHistory>
+    suspend fun loadNotDuplicatePairs(): Set<String>
+    suspend fun setTracksNotDuplicate(uris: List<Uri>, notDuplicate: Boolean)
     suspend fun loadHiddenFolderPaths(): Set<String>
     suspend fun setFolderHidden(path: String, hidden: Boolean)
     suspend fun loadArtistAliases(): Map<String, String>
@@ -55,6 +58,8 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         db.execSQL("CREATE INDEX track_cache_generation ON track_cache(generation)")
         db.execSQL("CREATE TABLE app_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
         db.execSQL("CREATE TABLE artist_aliases (alias_key TEXT PRIMARY KEY NOT NULL, alias_name TEXT NOT NULL, canonical_name TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE not_duplicate_pairs (pair_key TEXT PRIMARY KEY NOT NULL, first_uri TEXT NOT NULL, second_uri TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE playback_state (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -67,6 +72,86 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         }
         if (oldVersion < 6) db.execSQL("CREATE TABLE app_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
         if (oldVersion < 7) db.execSQL("CREATE TABLE artist_aliases (alias_key TEXT PRIMARY KEY NOT NULL, alias_name TEXT NOT NULL, canonical_name TEXT NOT NULL)")
+        if (oldVersion < 8) {
+            db.execSQL("CREATE TABLE not_duplicate_pairs (pair_key TEXT PRIMARY KEY NOT NULL, first_uri TEXT NOT NULL, second_uri TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE playback_state (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+            migrateHiddenFoldersSetting(db)
+        }
+    }
+
+    private fun migrateHiddenFoldersSetting(db: SQLiteDatabase) {
+        val raw = db.query("app_settings", arrayOf("value"), "key = ?", arrayOf(SETTING_HIDDEN_FOLDERS), null, null, null)
+            .use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: return
+        try {
+            val folders = JSONArray(raw)
+            for (index in 0 until folders.length()) {
+                val path = folders.optString(index).trim().trimEnd('/')
+                if (path.isNotEmpty()) {
+                    db.insertWithOnConflict(
+                        "hidden_folders",
+                        null,
+                        ContentValues().apply { put("path", path) },
+                        SQLiteDatabase.CONFLICT_IGNORE,
+                    )
+                }
+            }
+        } catch (exception: org.json.JSONException) {
+            android.util.Log.w(TAG, "Could not migrate hidden-folder settings; original value was preserved", exception)
+        }
+    }
+
+    fun loadPlaybackStateSync(): Map<String, String> {
+        val db = readableDatabase
+        if (db.inTransaction()) error("Playback state cannot be loaded during a database transaction.")
+        return db.query("playback_state", arrayOf("key", "value"), null, null, null, null, null).use { cursor ->
+            buildMap { while (cursor.moveToNext()) put(cursor.getString(0), cursor.getString(1)) }
+        }
+    }
+
+    fun migratePlaybackStateSync(values: Map<String, String>): Map<String, String> {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val existing = db.query("playback_state", arrayOf("key", "value"), null, null, null, null, null).use { cursor ->
+                buildMap { while (cursor.moveToNext()) put(cursor.getString(0), cursor.getString(1)) }
+            }
+            if (values.isNotEmpty()) {
+                values.filterKeys { it !in existing }.forEach { (key, value) ->
+                    db.insertWithOnConflict(
+                        "playback_state",
+                        null,
+                        ContentValues().apply { put("key", key); put("value", value) },
+                        SQLiteDatabase.CONFLICT_REPLACE,
+                    )
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return loadPlaybackStateSync()
+    }
+
+    fun savePlaybackStateSync(values: Map<String, String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            if (values.isEmpty()) {
+                db.delete("playback_state", null, null)
+            } else {
+                values.forEach { (key, value) ->
+                    db.insertWithOnConflict(
+                        "playback_state",
+                        null,
+                        ContentValues().apply { put("key", key); put("value", value) },
+                        SQLiteDatabase.CONFLICT_REPLACE,
+                    )
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     override suspend fun loadCachedTracks(): List<AudioTrack> = withContext(Dispatchers.IO) {
@@ -356,6 +441,40 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         }
     }
 
+    override suspend fun loadNotDuplicatePairs(): Set<String> = withContext(Dispatchers.IO) {
+        readableDatabase.query("not_duplicate_pairs", arrayOf("pair_key"), null, null, null, null, null).use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+    }
+
+    override suspend fun setTracksNotDuplicate(uris: List<Uri>, notDuplicate: Boolean) = withContext(Dispatchers.IO) {
+        val distinctUris = uris.map(Uri::toString).distinct().sorted()
+        require(distinctUris.size >= 2) { "At least two distinct tracks are required." }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            distinctUris.forEachIndexed { index, first ->
+                for (otherIndex in index + 1 until distinctUris.size) {
+                    val second = distinctUris[otherIndex]
+                    val key = duplicatePairKey(first, second)
+                    if (notDuplicate) {
+                        db.insertWithOnConflict(
+                            "not_duplicate_pairs",
+                            null,
+                            ContentValues().apply { put("pair_key", key); put("first_uri", first); put("second_uri", second) },
+                            SQLiteDatabase.CONFLICT_IGNORE,
+                        )
+                    } else {
+                        db.delete("not_duplicate_pairs", "pair_key = ?", arrayOf(key))
+                    }
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     private fun checkPlaylistExists(db: SQLiteDatabase, id: Long) {
         db.rawQuery("SELECT 1 FROM playlists WHERE _id = ?", arrayOf(id.toString())).use { cursor ->
             check(cursor.moveToFirst()) { "Playlist no longer exists." }
@@ -373,10 +492,11 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 
     private companion object {
         const val DATABASE_NAME = "sj_music_library.db"
-        const val DATABASE_VERSION = 7
+        const val DATABASE_VERSION = 8
         const val CACHE_BATCH_SIZE = 200
         const val SETTING_HIDDEN_FOLDERS = "hiddenFolders"
         const val SETTING_LYRICS_TREE = "lyricsTreeUri"
+        const val TAG = "RIFTPlaylistStore"
         const val LOCAL_VOLUME = "app"
         const val FAVORITES_PLAYLIST_ID = -1L
         const val RECENTLY_ADDED_ID = -2L
@@ -386,6 +506,9 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         val AUTO_PLAYLIST_NAMES = setOf("favorites", "recently added", "recently played", "most played", "never played")
     }
 }
+
+fun duplicatePairKey(firstUri: String, secondUri: String): String =
+    JSONArray().put(minOf(firstUri, secondUri)).put(maxOf(firstUri, secondUri)).toString()
 
 private fun backupRef(track: AudioTrack) = BackupTrackRef(track.uri.toString(), track.title, track.artist, track.album, track.durationMs)
 
