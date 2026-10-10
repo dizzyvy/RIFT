@@ -258,6 +258,8 @@ fun RiftApp(
                 onSortOrder = libraryViewModel::setSortOrder,
                 onSortAscending = libraryViewModel::setSortAscending,
                 onHideShortTracks = libraryViewModel::setHideShortTracks,
+                onHideLongTracks = libraryViewModel::setHideLongTracks,
+                onHideLongTracksAfterMinutes = libraryViewModel::setHideLongTracksAfterMinutes,
                 onRequestPermission = onRequestPermission,
                 onRetry = { libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true) },
                 onPlayTrack = { track ->

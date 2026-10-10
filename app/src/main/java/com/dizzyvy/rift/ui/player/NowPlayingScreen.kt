@@ -2,6 +2,7 @@ package com.dizzyvy.rift.ui.player
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
@@ -74,6 +75,7 @@ fun NowPlayingScreen(
     val scope = rememberCoroutineScope()
     val queueSnackbarState = remember { SnackbarHostState() }
     var queueOpen by remember { mutableStateOf(false) }
+    var confirmClearQueue by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var playlistName by remember { mutableStateOf("") }
@@ -185,8 +187,8 @@ fun NowPlayingScreen(
                 if (queueOpen) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("UP NEXT · ${playback.queue.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(onClick = { playlistName = ""; tracksToCreate = playback.queue; showCreatePlaylistDialog = true }) { Text("Save as playlist") }
-                        TextButton(onClick = onClearQueue) { Text("Clear") }
+                        TextButton(onClick = { playlistName = ""; tracksToCreate = playback.queue; showCreatePlaylistDialog = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Save as playlist") }
+                        TextButton(onClick = { confirmClearQueue = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear") }
                     }
                     playback.queue.forEachIndexed { index, queued ->
                         QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = {
@@ -195,15 +197,7 @@ fun NowPlayingScreen(
                                 val result = queueSnackbarState.showSnackbar("Removed ${queued.title} from queue", "Undo", withDismissAction = true)
                                 if (result == SnackbarResult.ActionPerformed) onRestoreQueueItem(queued, index)
                             }
-                        }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) }, dragModifier = Modifier.pointerInput(index, playback.queue.size) {
-                            var accumulatedY = 0f
-                            detectDragGesturesAfterLongPress(onDragEnd = { accumulatedY = 0f }, onDragCancel = { accumulatedY = 0f }) { change, amount ->
-                                change.consume()
-                                accumulatedY += amount.y
-                                if (accumulatedY > 52.dp.toPx() && index < playback.queue.lastIndex) { onMoveQueueItem(index, index + 1); accumulatedY = 0f }
-                                else if (accumulatedY < -52.dp.toPx() && index > 0) { onMoveQueueItem(index, index - 1); accumulatedY = 0f }
-                            }
-                        })
+                        }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) })
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
@@ -220,6 +214,25 @@ fun NowPlayingScreen(
                             listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { speed ->
                                 DropdownMenuItem(text = { Text("${speed}×") }, onClick = { onPlaybackSpeed(speed); speedMenuOpen = false })
                             }
+                        }
+                        if (confirmClearQueue) {
+                            AlertDialog(
+                                onDismissRequest = { confirmClearQueue = false },
+                                title = { Text("Clear the queue?") },
+                                text = { Text("Remove all ${playback.queue.size} tracks from Up Next?") },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            onClearQueue()
+                                            confirmClearQueue = false
+                                        },
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                    ) { Text("Clear queue") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { confirmClearQueue = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel") }
+                                },
+                            )
                         }
                     }
                 }
@@ -336,12 +349,11 @@ private fun QueueRow(
     onRemove: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    dragModifier: Modifier = Modifier,
 ) {
     Surface(
         color = if (current) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         shape = MaterialTheme.shapes.medium,
-        modifier = dragModifier
+        modifier = Modifier
             .pointerInput(track.uri) {
                 var horizontalDrag = 0f
                 var handled = false
@@ -359,19 +371,48 @@ private fun QueueRow(
                 )
             }
             .fillMaxWidth()
+            .heightIn(min = 56.dp)
             .padding(vertical = 2.dp),
     ) {
-        Row(Modifier.padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onSelect, modifier = Modifier.weight(1f)) {
-                Column(horizontalAlignment = Alignment.Start) {
+        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.weight(1f).heightIn(min = 48.dp)
+                    .clickable(onClick = onSelect)
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.Center,
+            ) {
                     Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface, fontWeight = if (current) FontWeight.Bold else FontWeight.Medium)
                     val artist = track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"
                     Text(if (current) "NOW PLAYING · $artist" else artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
             }
-            TextButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.semantics { contentDescription = "Move ${track.title} earlier in queue" }) { Text("↑") }
-            TextButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.semantics { contentDescription = "Move ${track.title} later in queue" }) { Text("↓") }
-            TextButton(onClick = onRemove, modifier = Modifier.semantics { contentDescription = "Remove ${track.title} from queue" }) { Text("×") }
+            Box(
+                Modifier.size(48.dp)
+                    .semantics { contentDescription = "Drag to reorder ${track.title}" }
+                    .pointerInput(track.uri, canMoveUp, canMoveDown) {
+                        var accumulatedY = 0f
+                        detectDragGesturesAfterLongPress(
+                            onDragEnd = { accumulatedY = 0f },
+                            onDragCancel = { accumulatedY = 0f },
+                        ) { change, amount ->
+                            change.consume()
+                            accumulatedY += amount.y
+                            if (accumulatedY > 52.dp.toPx() && canMoveDown) {
+                                onMoveDown()
+                                accumulatedY = 0f
+                            } else if (accumulatedY < -52.dp.toPx() && canMoveUp) {
+                                onMoveUp()
+                                accumulatedY = 0f
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) { Text("≡", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            TextButton(
+                onClick = onRemove,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = "Remove ${track.title} from queue" },
+            ) { Text("×") }
         }
     }
 }

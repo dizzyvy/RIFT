@@ -96,6 +96,8 @@ fun LibraryScreen(
     onSortOrder: (String) -> Unit,
     onSortAscending: (Boolean) -> Unit,
     onHideShortTracks: (Boolean) -> Unit,
+    onHideLongTracks: (Boolean) -> Unit,
+    onHideLongTracksAfterMinutes: (Int) -> Unit,
     onRequestPermission: () -> Unit,
     onRetry: () -> Unit,
     onPlayTrack: (AudioTrack) -> Unit,
@@ -146,6 +148,7 @@ fun LibraryScreen(
     var headerCollapsed by remember { mutableStateOf(false) }
     var appearanceMenuOpen by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
+    var longTrackMenuOpen by remember { mutableStateOf(false) }
     var tabViewportBounds by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     val tabBounds = remember { mutableStateMapOf<String, Pair<Float, Float>>() }
     var pendingTracks by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
@@ -378,7 +381,36 @@ fun LibraryScreen(
                             selected = state.hideShortTracks,
                             onClick = { onHideShortTracks(!state.hideShortTracks) },
                             label = { Text("Hide under 30s: ${if (state.hideShortTracks) "On" else "Off"}") },
+                            modifier = Modifier.heightIn(min = 48.dp),
                         )
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        FilterChip(
+                            selected = state.hideLongTracks,
+                            onClick = { onHideLongTracks(!state.hideLongTracks) },
+                            label = { Text("Hide over ${state.hideLongTracksAfterMinutes} min: ${if (state.hideLongTracks) "On" else "Off"}") },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        )
+                        Box {
+                            TextButton(
+                                onClick = { longTrackMenuOpen = true },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            ) { Text("${state.hideLongTracksAfterMinutes} min ▾") }
+                            DropdownMenu(
+                                expanded = longTrackMenuOpen,
+                                onDismissRequest = { longTrackMenuOpen = false },
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 0.dp,
+                            ) {
+                                listOf(20, 30, 45, 60, 90, 120).forEach { minutes ->
+                                    DropdownMenuItem(
+                                        text = { Text("$minutes minutes") },
+                                        onClick = { onHideLongTracksAfterMinutes(minutes); longTrackMenuOpen = false },
+                                        leadingIcon = { if (minutes == state.hideLongTracksAfterMinutes) Text("✓") },
+                                    )
+                                }
+                            }
+                        }
                     }
                     if (state.visibleTracks.isNotEmpty()) {
                         Button(onClick = onShuffleAll, modifier = Modifier.fillMaxWidth()) { Text("Shuffle all") }

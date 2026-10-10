@@ -193,6 +193,8 @@ data class LibraryUiState(
     val sortOrder: String = "Title",
     val sortAscending: Boolean = true,
     val hideShortTracks: Boolean = false,
+    val hideLongTracks: Boolean = false,
+    val hideLongTracksAfterMinutes: Int = 20,
     val clickWheelSensitivity: Float = 1f,
     val clickWheelHaptics: Boolean = true,
     val lyricsTreeUri: String? = null,
@@ -235,16 +237,21 @@ class LibraryViewModel(
                 val sortOrder = settings[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: current.sortOrder
                 val sortAscending = settings[SETTING_SORT_ASCENDING]?.toBooleanStrictOrNull() ?: (sortOrder != "Date added")
                 val hideShortTracks = settings[SETTING_HIDE_SHORT_TRACKS]?.toBooleanStrictOrNull() ?: current.hideShortTracks
+                val hideLongTracks = settings[SETTING_HIDE_LONG_TRACKS]?.toBooleanStrictOrNull() ?: current.hideLongTracks
+                val hideLongTracksAfterMinutes = settings[SETTING_HIDE_LONG_TRACKS_AFTER_MINUTES]?.toIntOrNull()?.takeIf { it in LONG_TRACK_FILTER_MINUTES }
+                    ?: current.hideLongTracksAfterMinutes
                 val wheelSensitivity = settings[SETTING_WHEEL_SENSITIVITY]?.toFloatOrNull()?.coerceIn(0.5f, 2f) ?: current.clickWheelSensitivity
                 val wheelHaptics = settings[SETTING_WHEEL_HAPTICS]?.toBooleanStrictOrNull() ?: current.clickWheelHaptics
                 _state.value = current.copy(
                     sortOrder = sortOrder,
                     sortAscending = sortAscending,
                     hideShortTracks = hideShortTracks,
+                    hideLongTracks = hideLongTracks,
+                    hideLongTracksAfterMinutes = hideLongTracksAfterMinutes,
                     clickWheelSensitivity = wheelSensitivity,
                     clickWheelHaptics = wheelHaptics,
                     lyricsTreeUri = settings[SETTING_LYRICS_TREE],
-                    visibleTracks = filterTracks(availableTracks(current), current.searchQuery, sortOrder, hideShortTracks, sortAscending),
+                    visibleTracks = filterTracks(availableTracks(current), current.searchQuery, sortOrder, hideShortTracks, sortAscending, hideLongTracks, hideLongTracksAfterMinutes),
                 )
             }
         }
@@ -516,6 +523,43 @@ class LibraryViewModel(
         viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_HIDE_SHORT_TRACKS to hide.toString())) } }
     }
 
+    fun setHideLongTracks(hide: Boolean) {
+        val current = _state.value
+        _state.value = current.copy(
+            hideLongTracks = hide,
+            visibleTracks = filterTracks(
+                availableTracks(current),
+                current.searchQuery,
+                current.sortOrder,
+                current.hideShortTracks,
+                current.sortAscending,
+                hide,
+                current.hideLongTracksAfterMinutes,
+            ),
+        )
+        viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_HIDE_LONG_TRACKS to hide.toString())) } }
+    }
+
+    fun setHideLongTracksAfterMinutes(minutes: Int) {
+        if (minutes !in LONG_TRACK_FILTER_MINUTES) return
+        val current = _state.value
+        _state.value = current.copy(
+            hideLongTracksAfterMinutes = minutes,
+            visibleTracks = filterTracks(
+                availableTracks(current),
+                current.searchQuery,
+                current.sortOrder,
+                current.hideShortTracks,
+                current.sortAscending,
+                current.hideLongTracks,
+                minutes,
+            ),
+        )
+        viewModelScope.launch {
+            runCatching { playlistStore.saveSettings(mapOf(SETTING_HIDE_LONG_TRACKS_AFTER_MINUTES to minutes.toString())) }
+        }
+    }
+
     fun setClickWheelSensitivity(sensitivity: Float) {
         val value = sensitivity.coerceIn(0.5f, 2f)
         _state.value = _state.value.copy(clickWheelSensitivity = value)
@@ -564,6 +608,9 @@ class LibraryViewModel(
                 val sortOrder = saved[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: "Title"
                 val sortAscending = saved[SETTING_SORT_ASCENDING]?.toBooleanStrictOrNull() ?: (sortOrder != "Date added")
                 val hideShortTracks = saved[SETTING_HIDE_SHORT_TRACKS]?.toBooleanStrictOrNull() ?: false
+                val hideLongTracks = saved[SETTING_HIDE_LONG_TRACKS]?.toBooleanStrictOrNull() ?: false
+                val hideLongTracksAfterMinutes = saved[SETTING_HIDE_LONG_TRACKS_AFTER_MINUTES]?.toIntOrNull()
+                    ?.takeIf { it in LONG_TRACK_FILTER_MINUTES } ?: 20
                 val wheelSensitivity = saved[SETTING_WHEEL_SENSITIVITY]?.toFloatOrNull()?.coerceIn(0.5f, 2f) ?: 1f
                 val wheelHaptics = saved[SETTING_WHEEL_HAPTICS]?.toBooleanStrictOrNull() ?: true
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
@@ -571,11 +618,21 @@ class LibraryViewModel(
                     sortOrder = sortOrder,
                     sortAscending = sortAscending,
                     hideShortTracks = hideShortTracks,
+                    hideLongTracks = hideLongTracks,
+                    hideLongTracksAfterMinutes = hideLongTracksAfterMinutes,
                     clickWheelSensitivity = wheelSensitivity,
                     clickWheelHaptics = wheelHaptics,
                     lyricsTreeUri = saved[SETTING_LYRICS_TREE],
                     hiddenFolderPaths = hiddenFolderPaths,
-                    visibleTracks = filterTracks(current.tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }, current.searchQuery, sortOrder, hideShortTracks, sortAscending),
+                    visibleTracks = filterTracks(
+                        current.tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) },
+                        current.searchQuery,
+                        sortOrder,
+                        hideShortTracks,
+                        sortAscending,
+                        hideLongTracks,
+                        hideLongTracksAfterMinutes,
+                    ),
                     actionMessage = "Backup restored. ${totalTrackRefs - resolvedTrackRefs} track(s) were not found.",
                 )
                 onSettingsRestored(saved)
@@ -617,7 +674,7 @@ class LibraryViewModel(
     }
 
     fun shuffleAll() {
-        val tracks = _state.value.visibleTracks
+        val tracks = _state.value.visibleTracks.filter { it.durationMs <= SHUFFLE_MAX_TRACK_DURATION_MS }
         if (tracks.isEmpty()) return
         playback.setQueue(tracks, 0)
         playback.setShuffleEnabled(true)
@@ -937,10 +994,13 @@ class LibraryViewModel(
         sortOrder: String,
         hideShortTracks: Boolean,
         ascending: Boolean = _state.value.sortAscending,
+        hideLongTracks: Boolean = _state.value.hideLongTracks,
+        hideLongTracksAfterMinutes: Int = _state.value.hideLongTracksAfterMinutes,
     ): List<AudioTrack> {
         val needle = query.trim()
         val filtered = tracks.filter { track ->
             (!hideShortTracks || track.durationMs >= 30_000L) &&
+                (!hideLongTracks || track.durationMs <= hideLongTracksAfterMinutes * MILLISECONDS_PER_MINUTE) &&
                 (needle.isEmpty() || track.title.contains(needle, ignoreCase = true) ||
                     track.artist.contains(needle, ignoreCase = true) || track.album.contains(needle, ignoreCase = true))
         }
@@ -966,6 +1026,8 @@ class LibraryViewModel(
         const val SETTING_SORT_ORDER = "sortOrder"
         const val SETTING_SORT_ASCENDING = "sortAscending"
         const val SETTING_HIDE_SHORT_TRACKS = "hideShortTracks"
+        const val SETTING_HIDE_LONG_TRACKS = "hideLongTracks"
+        const val SETTING_HIDE_LONG_TRACKS_AFTER_MINUTES = "hideLongTracksAfterMinutes"
         const val SETTING_WHEEL_SENSITIVITY = "clickWheelSensitivity"
         const val SETTING_WHEEL_HAPTICS = "clickWheelHaptics"
         const val SETTING_MEDIA_VERSION = "mediaStoreVersion"
@@ -973,6 +1035,9 @@ class LibraryViewModel(
         const val RECENTLY_ADDED_DAYS = 30L
         const val SECONDS_PER_DAY = 24L * 60L * 60L
         const val RECENTLY_ADDED_LIMIT = 100
+        const val SHUFFLE_MAX_TRACK_DURATION_MS = 20L * 60L * 1_000L
+        const val MILLISECONDS_PER_MINUTE = 60_000
+        val LONG_TRACK_FILTER_MINUTES = setOf(20, 30, 45, 60, 90, 120)
         val SORT_ORDERS = setOf("Title", "Artist", "Date added", "Duration")
     }
     class Factory(

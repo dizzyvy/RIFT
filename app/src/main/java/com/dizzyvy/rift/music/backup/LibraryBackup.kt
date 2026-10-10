@@ -46,6 +46,12 @@ object LibraryBackupCodec {
         settings["sortOrder"]?.let { require(it in SORT_ORDERS) { "Backup contains an invalid sort order." } }
         settings["sortAscending"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid sort direction." } }
         settings["hideShortTracks"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid short-track setting." } }
+        settings["hideLongTracks"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid long-track setting." } }
+        settings["hideLongTracksAfterMinutes"]?.let {
+            require(it.toIntOrNull()?.let { minutes -> minutes in LONG_TRACK_FILTER_MINUTES } == true) {
+                "Backup contains an invalid long-track duration."
+            }
+        }
         settings["clickWheelSensitivity"]?.let { require(it.toFloatOrNull()?.let { value -> value in 0.5f..2f } == true) { "Backup contains an invalid click-wheel sensitivity." } }
         settings["clickWheelHaptics"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid click-wheel haptic setting." } }
         settings["hiddenFolders"]?.let { folders ->
@@ -75,7 +81,8 @@ object LibraryBackupCodec {
 
     private const val MAX_BACKUP_CHARS = 16 * 1024 * 1024
     private val RESERVED_NAMES = setOf("favorites", "recently added", "recently played", "most played", "never played")
-    private val SETTING_KEYS = setOf("themeMode", "accentName", "sortOrder", "sortAscending", "hideShortTracks", "hiddenFolders", "clickWheelSensitivity", "clickWheelHaptics")
+    private val SETTING_KEYS = setOf("themeMode", "accentName", "sortOrder", "sortAscending", "hideShortTracks", "hideLongTracks", "hideLongTracksAfterMinutes", "hiddenFolders", "clickWheelSensitivity", "clickWheelHaptics")
     private val SORT_ORDERS = setOf("Title", "Artist", "Date added", "Duration")
     private val ACCENTS = setOf("Chromatic", "Cyan", "Coral", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Silver", "Graphite")
+    private val LONG_TRACK_FILTER_MINUTES = setOf(20, 30, 45, 60, 90, 120)
 }
