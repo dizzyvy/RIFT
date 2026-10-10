@@ -1,110 +1,189 @@
 package com.dizzyvy.rift.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Color
 
-private fun accentColor(name: String): Color = when (name.lowercase()) {
-    "red" -> Color(0xFFD92338)
-    "orange" -> Color(0xFFE66B1E)
-    "yellow", "gold" -> Color(0xFFF2C230)
-    "green" -> Color(0xFF54A96A)
-    "blue" -> Color(0xFF208BCE)
-    "purple" -> Color(0xFF8758B8)
-    "pink" -> Color(0xFFD95791)
-    "silver" -> Color(0xFF9AA4AE)
-    "graphite" -> Color(0xFF454B54)
-    "chromatic", "cyan" -> NanoCyan
-    else -> RiftPink
+private const val SECONDARY_TEXT_ALPHA = 0.7f
+
+object RiftPalette {
+    val coral = Color(0xFFFF7E7E)
+    val orange = Color(0xFFFFA259)
+    val yellow = Color(0xFFFFCB56)
+    val cream = Color(0xFFFFEDB9)
+    val warmBrown = Color(0xFF2B1B17)
+
+    val lightBackground = cream
+    val lightSurface = Color(0xFFFFF4D2)
+    val darkBackground = Color(0xFF231416)
+    val darkSurface = Color(0xFF33201F)
 }
+
+private data class ThemeRoles(
+    val background: Color,
+    val surface: Color,
+    val onBackground: Color,
+    val onSurface: Color,
+    val primary: Color,
+    val onPrimary: Color,
+    val secondary: Color,
+    val onSecondary: Color,
+    val tertiary: Color,
+    val onTertiary: Color,
+    val outline: Color,
+)
+
+private val lightRoles = ThemeRoles(
+    background = RiftPalette.lightBackground,
+    surface = RiftPalette.lightSurface,
+    onBackground = RiftPalette.warmBrown,
+    onSurface = RiftPalette.warmBrown,
+    primary = RiftPalette.coral,
+    onPrimary = RiftPalette.warmBrown,
+    secondary = RiftPalette.orange,
+    onSecondary = RiftPalette.warmBrown,
+    tertiary = RiftPalette.yellow,
+    onTertiary = RiftPalette.warmBrown,
+    outline = RiftPalette.warmBrown,
+)
+
+private val darkRoles = ThemeRoles(
+    background = RiftPalette.darkBackground,
+    surface = RiftPalette.darkSurface,
+    onBackground = RiftPalette.cream,
+    onSurface = RiftPalette.cream,
+    primary = RiftPalette.coral,
+    onPrimary = RiftPalette.warmBrown,
+    secondary = RiftPalette.orange,
+    onSecondary = RiftPalette.warmBrown,
+    tertiary = RiftPalette.yellow,
+    onTertiary = RiftPalette.warmBrown,
+    outline = RiftPalette.cream.copy(alpha = 0.7f),
+)
 
 @Composable
 fun RiftTheme(
-    mode: String = "light",
-    accent: String = "Coral",
+    mode: String = "system",
     content: @Composable () -> Unit,
 ) {
-    val resolvedMode = when (mode.lowercase()) {
-        "system" -> if (isSystemInDarkTheme()) "dark" else "light"
-        else -> mode.lowercase()
+    val isDark = when (mode.lowercase()) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
     }
-    val accentColor = if (resolvedMode == "light" && accent.lowercase() in setOf("chromatic", "cyan")) {
-        Color(0xFF006B78)
+    val roles = if (isDark) darkRoles else lightRoles
+    val dimOnSurface = roles.onSurface.copy(alpha = SECONDARY_TEXT_ALPHA)
+    val palette = if (isDark) {
+        darkColorScheme(
+            primary = roles.primary,
+            onPrimary = roles.onPrimary,
+            primaryContainer = roles.surface,
+            onPrimaryContainer = roles.onSurface,
+            inversePrimary = roles.secondary,
+            secondary = roles.secondary,
+            onSecondary = roles.onSecondary,
+            secondaryContainer = roles.surface,
+            onSecondaryContainer = roles.onSurface,
+            tertiary = roles.tertiary,
+            onTertiary = roles.onTertiary,
+            tertiaryContainer = roles.surface,
+            onTertiaryContainer = roles.onSurface,
+            background = roles.background,
+            onBackground = roles.onBackground,
+            surface = roles.surface,
+            onSurface = roles.onSurface,
+            surfaceVariant = roles.surface,
+            onSurfaceVariant = dimOnSurface,
+            surfaceTint = roles.primary,
+            inverseSurface = roles.onSurface,
+            inverseOnSurface = roles.background,
+            error = roles.tertiary,
+            onError = roles.onTertiary,
+            errorContainer = roles.surface,
+            onErrorContainer = roles.onSurface,
+            outline = roles.outline,
+            outlineVariant = roles.outline,
+            scrim = roles.background,
+        )
     } else {
-        accentColor(accent)
-    }
-    val darkAccentLabel = accent.lowercase() in setOf("gold", "yellow", "orange", "silver")
-    val palette = when (resolvedMode) {
-        "nano" -> darkColorScheme(
-            primary = accentColor,
-            onPrimary = Color.White,
-            primaryContainer = NanoSurfaceRaised,
-            onPrimaryContainer = NanoText,
-            secondary = NanoPurple,
-            onSecondary = Color.White,
-            secondaryContainer = Color(0xFF33205B),
-            onSecondaryContainer = NanoText,
-            tertiary = NanoGreen,
-            onTertiary = Color(0xFF062016),
-            background = NanoBackground,
-            onBackground = NanoText,
-            surface = NanoSurface,
-            onSurface = NanoText,
-            surfaceVariant = NanoSurfaceRaised,
-            onSurfaceVariant = NanoMuted,
-            outline = NanoOutline,
-        )
-        "dark" -> darkColorScheme(
-            primary = accentColor,
-            onPrimary = if (darkAccentLabel) Ink else Color.White,
-            secondary = RiftBlue,
-            onSecondary = Color.White,
-            tertiary = RiftGold,
-            background = Color(0xFF121212),
-            surface = Color(0xFF1C1C1E),
-            onSurface = Color(0xFFF4F4F4),
-            onSurfaceVariant = Color(0xFFB5B5B8),
-        )
-        "amoled" -> darkColorScheme(
-            primary = accentColor,
-            onPrimary = if (darkAccentLabel) Ink else Color.White,
-            secondary = RiftBlue,
-            onSecondary = Color.White,
-            tertiary = RiftGold,
-            background = Color.Black,
-            surface = Color.Black,
-            onSurface = Color(0xFFF4F4F4),
-            onSurfaceVariant = Color(0xFFB5B5B8),
-        )
-        else -> lightColorScheme(
-            primary = accentColor,
-            onPrimary = if (darkAccentLabel) Ink else Color.White,
-            secondary = RiftBlue,
-            onSecondary = Color.White,
-            tertiary = RiftGold,
-            background = RiftBackground,
-            surface = Color(0xFFFFFEFB),
-            onSurface = Ink,
-            onSurfaceVariant = Color(0xFF686D76),
+        lightColorScheme(
+            primary = roles.primary,
+            onPrimary = roles.onPrimary,
+            primaryContainer = roles.surface,
+            onPrimaryContainer = roles.onSurface,
+            inversePrimary = roles.secondary,
+            secondary = roles.secondary,
+            onSecondary = roles.onSecondary,
+            secondaryContainer = roles.surface,
+            onSecondaryContainer = roles.onSurface,
+            tertiary = roles.tertiary,
+            onTertiary = roles.onTertiary,
+            tertiaryContainer = roles.surface,
+            onTertiaryContainer = roles.onSurface,
+            background = roles.background,
+            onBackground = roles.onBackground,
+            surface = roles.surface,
+            onSurface = roles.onSurface,
+            surfaceVariant = roles.surface,
+            onSurfaceVariant = dimOnSurface,
+            surfaceTint = roles.primary,
+            inverseSurface = roles.onSurface,
+            inverseOnSurface = roles.background,
+            error = roles.tertiary,
+            onError = roles.onTertiary,
+            errorContainer = roles.surface,
+            onErrorContainer = roles.onSurface,
+            outline = roles.outline,
+            outlineVariant = roles.outline,
+            scrim = roles.background,
         )
     }
     MaterialTheme(colorScheme = palette, content = content)
 }
 
 @Composable
+fun RiftTextButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+        content = content,
+    )
+}
+
+@Composable
+fun RiftOutlinedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+        content = content,
+    )
+}
+
+@Composable
 fun RiftBackgroundBrush(): Brush {
     val colors = MaterialTheme.colorScheme
-    val background = colors.background
-    return Brush.verticalGradient(
-        listOf(
-            colors.primary.copy(alpha = 0.055f).compositeOver(background),
-            background,
-            colors.secondary.copy(alpha = 0.035f).compositeOver(background),
-        ),
-    )
+    return Brush.verticalGradient(listOf(colors.background, colors.surface, colors.background))
 }

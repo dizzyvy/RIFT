@@ -17,6 +17,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.graphics.toArgb
 import com.dizzyvy.rift.music.library.MediaStoreAudioLibraryRepository
 import com.dizzyvy.rift.music.library.SqlitePlaylistStore
 import com.dizzyvy.rift.music.artwork.EmbeddedArtworkRepository
@@ -29,8 +30,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var playbackController: Media3PlaybackController
     private lateinit var artworkRepository: EmbeddedArtworkRepository
     private val audioPermissionState = mutableStateOf(false)
-    private val themeModeState = mutableStateOf("light")
-    private val accentNameState = mutableStateOf("Coral")
+    private val themeModeState = mutableStateOf("system")
     private val externalAudioUriState = mutableStateOf<Uri?>(null)
     private var requestedAudioPermissionBefore = false
 
@@ -45,16 +45,28 @@ class MainActivity : ComponentActivity() {
         requestedAudioPermissionBefore = getPreferences(MODE_PRIVATE)
             .getBoolean(KEY_REQUESTED_AUDIO_PERMISSION, false)
         audioPermissionState.value = hasAudioPermission()
-        themeModeState.value = getPreferences(MODE_PRIVATE).getString(KEY_THEME_MODE, "light") ?: "light"
-        accentNameState.value = getPreferences(MODE_PRIVATE).getString(KEY_ACCENT_NAME, "Coral") ?: "Coral"
+        val preferences = getPreferences(MODE_PRIVATE)
+        if (preferences.getInt(KEY_THEME_SCHEMA, 0) < THEME_SCHEMA_VERSION) {
+            preferences.edit()
+                .putInt(KEY_THEME_SCHEMA, THEME_SCHEMA_VERSION)
+                .putString(KEY_THEME_MODE, "system")
+                .remove("accent_name")
+                .remove("text_color")
+                .apply()
+        }
+        themeModeState.value = normalizeThemeMode(preferences.getString(KEY_THEME_MODE, "system"))
         setContent {
             val systemDarkTheme = isSystemInDarkTheme()
             SideEffect {
-                val lightSystemBars = themeModeState.value.equals("light", ignoreCase = true) ||
-                    (themeModeState.value.equals("system", ignoreCase = true) && !systemDarkTheme)
+                val isDark = themeModeState.value == "dark" ||
+                    (themeModeState.value == "system" && systemDarkTheme)
+                val barColor = (if (isDark) com.dizzyvy.rift.ui.theme.RiftPalette.darkBackground
+                else com.dizzyvy.rift.ui.theme.RiftPalette.lightBackground).toArgb()
+                window.statusBarColor = barColor
+                window.navigationBarColor = barColor
                 WindowInsetsControllerCompat(window, window.decorView).apply {
-                    isAppearanceLightStatusBars = lightSystemBars
-                    isAppearanceLightNavigationBars = lightSystemBars
+                    isAppearanceLightStatusBars = !isDark
+                    isAppearanceLightNavigationBars = !isDark
                 }
             }
             val permissionLauncher = rememberLauncherForActivityResult(
@@ -68,16 +80,12 @@ class MainActivity : ComponentActivity() {
                 artworkRepository = artworkRepository,
                 hasAudioPermission = audioPermissionState.value,
                 themeMode = themeModeState.value,
-                accentName = accentNameState.value,
                 externalAudioUri = externalAudioUriState.value,
                 onExternalAudioHandled = { externalAudioUriState.value = null },
                 onThemeModeChange = { value ->
-                    themeModeState.value = value
-                    getPreferences(MODE_PRIVATE).edit().putString(KEY_THEME_MODE, value).apply()
-                },
-                onAccentChange = { value ->
-                    accentNameState.value = value
-                    getPreferences(MODE_PRIVATE).edit().putString(KEY_ACCENT_NAME, value).apply()
+                    val normalized = normalizeThemeMode(value)
+                    themeModeState.value = normalized
+                    preferences.edit().putString(KEY_THEME_MODE, normalized).apply()
                 },
                 onRequestPermission = {
                     val permission = requiredAudioPermission()
@@ -124,9 +132,17 @@ class MainActivity : ComponentActivity() {
         requiredAudioPermission(),
     ) == PackageManager.PERMISSION_GRANTED
 
+    private fun normalizeThemeMode(value: String?): String = when (value?.lowercase()) {
+        "light" -> "light"
+        "dark" -> "dark"
+        "system", "follow system" -> "system"
+        else -> "system"
+    }
+
     private companion object {
         const val KEY_REQUESTED_AUDIO_PERMISSION = "requested_audio_permission"
         const val KEY_THEME_MODE = "theme_mode"
-        const val KEY_ACCENT_NAME = "accent_name"
+        const val KEY_THEME_SCHEMA = "theme_schema"
+        const val THEME_SCHEMA_VERSION = 1
     }
 }

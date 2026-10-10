@@ -194,6 +194,9 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         val db = writableDatabase
         db.beginTransaction()
         try {
+            if ("themeMode" in settings) {
+                db.delete("app_settings", "key IN (?, ?, ?)", arrayOf("accentName", "textColor", "text_color"))
+            }
             settings.forEach { (key, value) -> db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", key); put("value", value) }, SQLiteDatabase.CONFLICT_REPLACE) }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
@@ -214,7 +217,9 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
             }
         }
         val favorites = loadFavoriteUris().map { uri -> byUri[uri.toString()]?.let(::backupRef) ?: BackupTrackRef(uri.toString(), "", "", "", 0L) }
-        val settings = loadSettings().filterKeys { it != SETTING_LYRICS_TREE }.toMutableMap().apply {
+        val settings = loadSettings()
+            .filterKeys { it != SETTING_LYRICS_TREE && it !in LEGACY_APPEARANCE_SETTINGS }
+            .toMutableMap().apply {
             put(SETTING_HIDDEN_FOLDERS, org.json.JSONArray(loadHiddenFolderPaths().sorted()).toString())
         }
         LibraryBackupSnapshot(playlists, favorites, settings)
@@ -491,6 +496,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     private companion object {
+        val LEGACY_APPEARANCE_SETTINGS = setOf("accentName", "textColor", "text_color")
         const val DATABASE_NAME = "sj_music_library.db"
         const val DATABASE_VERSION = 8
         const val CACHE_BATCH_SIZE = 200

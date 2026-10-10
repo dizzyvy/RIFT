@@ -44,9 +44,9 @@ fun ClickWheel(
 ) {
     val view = LocalView.current
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val wheelColor = if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF202833) else androidx.compose.ui.graphics.Color(0xFFE8E5DF)
-    val wheelInsetColor = if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF303A47) else androidx.compose.ui.graphics.Color(0xFFF5F3EE)
-    val wheelOutlineColor = if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF425165) else androidx.compose.ui.graphics.Color(0xFFD4D0C8)
+    val wheelColor = if (isDarkTheme) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+    val wheelInsetColor = if (isDarkTheme) MaterialTheme.colorScheme.background.copy(alpha = 0.82f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+    val wheelOutlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
     val centerRadius = with(LocalDensity.current) { (if (compact) 38.dp else 54.dp).toPx() }
     val latestOnRotate = rememberUpdatedState(onRotate)
     val haptics = remember(view, latestOnRotate, sensitivity, hapticsEnabled) {

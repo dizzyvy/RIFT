@@ -53,11 +53,9 @@ fun RiftApp(
     artworkRepository: ArtworkRepository,
     hasAudioPermission: Boolean,
     themeMode: String,
-    accentName: String,
     externalAudioUri: Uri?,
     onExternalAudioHandled: () -> Unit,
     onThemeModeChange: (String) -> Unit,
-    onAccentChange: (String) -> Unit,
     onRequestPermission: () -> Unit,
 ) {
     val factory = remember(repository, playlistStore, playbackController) { LibraryViewModel.Factory(repository, playlistStore, playbackController) }
@@ -156,7 +154,6 @@ fun RiftApp(
                 }
                 libraryViewModel.importBackup(contents) { settings ->
                     settings["themeMode"]?.let(onThemeModeChange)
-                    settings["accentName"]?.let(onAccentChange)
                 }
             }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not read the backup file.") }
         }
@@ -168,8 +165,8 @@ fun RiftApp(
         }.onFailure { libraryViewModel.reportActionError(it.message ?: "Could not access that lyrics folder.") }
     }
 
-    LaunchedEffect(themeMode, accentName) {
-        libraryViewModel.saveAppSettings(mapOf("themeMode" to themeMode, "accentName" to accentName))
+    LaunchedEffect(themeMode) {
+        libraryViewModel.saveAppSettings(mapOf("themeMode" to themeMode))
     }
 
     LaunchedEffect(externalAudioUri) {
@@ -214,7 +211,7 @@ fun RiftApp(
         libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = false)
     }
 
-    RiftTheme(mode = themeMode, accent = accentName) {
+    RiftTheme(mode = themeMode) {
       CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
       androidx.compose.foundation.layout.Box(Modifier.safeDrawingPadding()) {
         if (showPlayer) {
@@ -299,9 +296,7 @@ fun RiftApp(
                 onMovePlaylistTrack = libraryViewModel::movePlaylistTrack,
                 onBackFromGroup = libraryViewModel::closeGroup,
                 themeMode = themeMode,
-                accentName = accentName,
                 onThemeModeChange = onThemeModeChange,
-                onAccentChange = onAccentChange,
                 onToggleFolderHidden = { path, hidden, onComplete ->
                     libraryViewModel.setFolderHidden(path, hidden, onComplete)
                 },

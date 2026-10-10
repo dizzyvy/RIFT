@@ -13,8 +13,8 @@ android {
         applicationId = "com.dizzyvy.sjmusicapp"
         minSdk = 24
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.9.0"
+        versionCode = 8
+        versionName = "0.10.0"
     }
 
     compileOptions {

@@ -132,9 +132,17 @@ fun NowPlayingScreen(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val artworkHeight = (maxHeight * 0.2f).coerceIn(100.dp, 160.dp)
+    val topGradient = Brush.verticalGradient(
+        listOf(
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+            MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
+            MaterialTheme.colorScheme.background,
+            MaterialTheme.colorScheme.background,
+        ),
+    )
     Column(
         Modifier.fillMaxSize()
-            .background(if (artworkAccent != null) Brush.verticalGradient(listOf(artworkAccent!!.copy(alpha = 0.14f), MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.background)) else RiftBackgroundBrush())
+            .background(topGradient)
             .padding(horizontal = 22.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

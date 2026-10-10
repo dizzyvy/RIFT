@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -40,8 +39,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
@@ -66,24 +63,12 @@ import com.dizzyvy.rift.music.library.resolveArtistAlias
 import com.dizzyvy.rift.music.model.AudioTrack
 import com.dizzyvy.rift.music.playback.PlaybackSnapshot
 import com.dizzyvy.rift.ui.components.AlbumArtwork
-import com.dizzyvy.rift.ui.theme.NanoBackground
-import com.dizzyvy.rift.ui.theme.NanoBlue
-import com.dizzyvy.rift.ui.theme.NanoCyan
-import com.dizzyvy.rift.ui.theme.NanoGreen
-import com.dizzyvy.rift.ui.theme.NanoMuted
-import com.dizzyvy.rift.ui.theme.NanoOutline
-import com.dizzyvy.rift.ui.theme.NanoPink
-import com.dizzyvy.rift.ui.theme.NanoPurple
-import com.dizzyvy.rift.ui.theme.NanoSurface
-import com.dizzyvy.rift.ui.theme.NanoSurfaceRaised
-import com.dizzyvy.rift.ui.theme.NanoText
+import com.dizzyvy.rift.ui.theme.RiftOutlinedButton as OutlinedButton
+import com.dizzyvy.rift.ui.theme.RiftTextButton as TextButton
 import com.dizzyvy.rift.ui.theme.RiftBackgroundBrush
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-
-private val NanoAccentBrush = Brush.linearGradient(listOf(NanoCyan, NanoBlue, NanoPurple, NanoPink))
-private val NanoScreenGlow = Brush.verticalGradient(listOf(Color(0xFF0B1B2B), NanoBackground, Color(0xFF050A10)))
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -134,16 +119,13 @@ fun LibraryScreen(
     onMovePlaylistTrack: (Int, Int) -> Unit,
     onBackFromGroup: () -> Unit,
     themeMode: String,
-    accentName: String,
     onThemeModeChange: (String) -> Unit,
-    onAccentChange: (String) -> Unit,
     onToggleFolderHidden: (String, Boolean, () -> Unit) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val tabScrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val nanoMode = themeMode.equals("nano", ignoreCase = true)
     val isTablet = LocalConfiguration.current.screenWidthDp >= 700
     var headerCollapsed by remember { mutableStateOf(false) }
     var appearanceMenuOpen by remember { mutableStateOf(false) }
@@ -206,7 +188,7 @@ fun LibraryScreen(
     }
     Column(
         Modifier.fillMaxSize()
-            .background(if (nanoMode) NanoScreenGlow else RiftBackgroundBrush())
+            .background(RiftBackgroundBrush())
             .padding(horizontal = 18.dp),
     ) {
         if (state.browseTitle != null) {
@@ -222,7 +204,7 @@ fun LibraryScreen(
             Spacer(Modifier.height(5.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("RIFT", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("RIFT", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     Text("Your music", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 }
                 Box {
@@ -263,13 +245,7 @@ fun LibraryScreen(
                                     )
                                 }
                             }
-                        if (nanoMode) NanoFilterChip(
-                            tab,
-                            selected,
-                            { onCategory(category) },
-                            tabModifier.then(if (isTablet) Modifier.weight(1f) else Modifier),
-                        )
-                        else FilterChip(
+                        FilterChip(
                             selected = selected,
                             onClick = { onCategory(category) },
                             label = { Text(tab, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -291,9 +267,7 @@ fun LibraryScreen(
             }
             if (appearanceMenuOpen) AppearanceOptions(
                 themeMode = themeMode,
-                accentName = accentName,
                 onThemeModeChange = onThemeModeChange,
-                onAccentChange = onAccentChange,
                 onDismiss = { appearanceMenuOpen = false },
             )
             if (selectedTracks.isNotEmpty()) {
@@ -320,18 +294,18 @@ fun LibraryScreen(
                     onValueChange = onSearch,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                     singleLine = true,
-                    shape = RoundedCornerShape(if (nanoMode) 18.dp else 15.dp),
-                    placeholder = { Text(placeholder, color = if (nanoMode) NanoMuted else MaterialTheme.colorScheme.onSurfaceVariant) },
-                    leadingIcon = { Text("⌕", color = if (nanoMode) NanoCyan else MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.headlineSmall) },
-                    colors = if (nanoMode) OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = NanoText,
-                        unfocusedTextColor = NanoText,
-                        focusedBorderColor = NanoBlue,
-                        unfocusedBorderColor = NanoOutline,
-                        cursorColor = NanoCyan,
-                        focusedContainerColor = Color(0xFF0B1827),
-                        unfocusedContainerColor = Color(0xFF0B1827),
-                    ) else OutlinedTextFieldDefaults.colors(),
+                    shape = RoundedCornerShape(15.dp),
+                    placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    leadingIcon = { Text("⌕", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.headlineSmall) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        cursorColor = MaterialTheme.colorScheme.onSurface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 )
                 if (state.category == "Playlists") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -898,34 +872,13 @@ private fun CollectionList(
 @Composable
 private fun AppearanceOptions(
     themeMode: String,
-    accentName: String,
     onThemeModeChange: (String) -> Unit,
-    onAccentChange: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val darkTheme = themeMode.equals("dark", ignoreCase = true) ||
-        themeMode.equals("amoled", ignoreCase = true) ||
-        themeMode.equals("nano", ignoreCase = true) ||
-        (themeMode.equals("system", ignoreCase = true) && isSystemInDarkTheme())
     val themeOptions = listOf(
         "system" to "Follow system",
         "light" to "Light",
         "dark" to "Dark",
-        "amoled" to "AMOLED black",
-        "nano" to "Nano Chromatic",
-    )
-    val accentOptions = listOf(
-        "Cyan" to if (darkTheme) NanoCyan else Color(0xFF006B78),
-        "Coral" to Color(0xFFE64A5D),
-        "Red" to Color(0xFFD92338),
-        "Orange" to Color(0xFFE66B1E),
-        "Yellow" to Color(0xFFF2C230),
-        "Green" to Color(0xFF54A96A),
-        "Blue" to Color(0xFF208BCE),
-        "Purple" to Color(0xFF8758B8),
-        "Pink" to Color(0xFFD95791),
-        "Silver" to Color(0xFF9AA4AE),
-        "Graphite" to Color(0xFF454B54),
     )
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -951,31 +904,6 @@ private fun AppearanceOptions(
                     onClick = { onThemeModeChange(value); onDismiss() },
                     trailingIcon = {
                         if (themeMode.equals(value, ignoreCase = true)) Text("✓", color = MaterialTheme.colorScheme.primary)
-                    },
-                )
-            }
-            HorizontalDivider(Modifier.padding(vertical = 4.dp))
-            Text(
-                "TEXT COLOR",
-                Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            accentOptions.forEach { (name, swatch) ->
-                val selected = accentName.equals(name, ignoreCase = true) ||
-                    (name == "Cyan" && accentName.equals("Chromatic", ignoreCase = true))
-                DropdownMenuItem(
-                    text = { Text(name) },
-                    onClick = { onAccentChange(name); onDismiss() },
-                    leadingIcon = {
-                        Box(
-                            Modifier.size(18.dp).clip(CircleShape)
-                                .background(swatch)
-                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
-                        )
-                    },
-                    trailingIcon = {
-                        if (selected) Text("✓", color = MaterialTheme.colorScheme.primary)
                     },
                 )
             }
@@ -1146,16 +1074,15 @@ private fun TrackRow(
     canMoveDown: Boolean = false,
 ) {
     val context = LocalContext.current
-    val nanoMode = MaterialTheme.colorScheme.background == NanoBackground
     val rowShape = RoundedCornerShape(15.dp)
     var moreMenuOpen by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clip(rowShape)
-            .background(if (nanoMode) if (playing) Color(0xFF122A40) else NanoSurface else Color.Transparent)
-            .then(if (nanoMode) Modifier.border(1.dp, if (playing) NanoBlue.copy(alpha = 0.55f) else NanoOutline.copy(alpha = 0.45f), rowShape) else Modifier)
+            .background(if (playing) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), rowShape)
             .combinedClickable(onClick = onClick, onLongClick = onLongPress)
-            .padding(vertical = if (nanoMode) 8.dp else 6.dp, horizontal = if (nanoMode) 8.dp else 3.dp),
+            .padding(vertical = 6.dp, horizontal = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onClick() }, modifier = Modifier.size(52.dp)) else AlbumTile(track, artworkRepository, Modifier.size(52.dp).padding(end = 0.dp))
@@ -1260,10 +1187,9 @@ private fun formatTime(milliseconds: Long): String {
 @Composable
 fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository, onClick: () -> Unit, onPlayPause: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, modifier: Modifier = Modifier) {
     val track = playback.currentTrack ?: return
-    val nanoMode = MaterialTheme.colorScheme.background == NanoBackground
     val playerShape = RoundedCornerShape(18.dp)
     var horizontalDrag by remember(track.uri) { mutableStateOf(0f) }
-    Surface(modifier.fillMaxWidth().clip(playerShape).then(if (nanoMode) Modifier.border(2.dp, NanoAccentBrush, playerShape) else Modifier).pointerInput(track.uri) {
+    Surface(modifier.fillMaxWidth().clip(playerShape).pointerInput(track.uri) {
         detectHorizontalDragGestures(
             onDragEnd = {
                 if (horizontalDrag > 48f) onNext()
@@ -1309,22 +1235,20 @@ private fun BrowseRow(
     trailingContent: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val nanoMode = MaterialTheme.colorScheme.background == NanoBackground
-    val rowShape = RoundedCornerShape(if (nanoMode) 16.dp else 14.dp)
+    val rowShape = RoundedCornerShape(14.dp)
     Row(
         Modifier.fillMaxWidth().clip(rowShape)
-            .background(if (nanoMode) NanoSurface else Color.Transparent)
-            .then(if (nanoMode) Modifier.border(1.dp, NanoOutline.copy(alpha = 0.65f), rowShape) else Modifier)
+            .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (artworkUri != null) AlbumArtwork(artworkUri, title, artworkRepository, Modifier.size(48.dp), fallbackInitial = artistInitialFallback)
         else Box(
-            Modifier.size(if (nanoMode) 50.dp else 48.dp).clip(RoundedCornerShape(if (nanoMode) 14.dp else 12.dp))
-                .then(if (nanoMode) Modifier.background(NanoAccentBrush) else Modifier.background(MaterialTheme.colorScheme.tertiaryContainer)),
+            Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.tertiary),
             contentAlignment = Alignment.Center,
         ) {
-            Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimary)
+            Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "♫", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onTertiary)
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1354,33 +1278,10 @@ private fun displayValue(value: String, fallback: String): String =
 
 @Composable
 private fun EmptyPanel(icon: String, title: String, subtitle: String, button: String? = null, onClick: (() -> Unit)? = null) {
-    val nanoMode = MaterialTheme.colorScheme.background == NanoBackground
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        if (nanoMode) {
-            Box(Modifier.size(96.dp).clip(RoundedCornerShape(30.dp)).background(NanoAccentBrush).padding(2.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).background(NanoSurface), contentAlignment = Alignment.Center) {
-                    Text(icon, style = MaterialTheme.typography.displaySmall, color = NanoText)
-                }
-            }
-        } else {
-            Box(Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.tertiary).padding(24.dp)) { Text(icon, style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onTertiary) }
-        }
+        Box(Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.tertiary).padding(24.dp)) { Text(icon, style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onTertiary) }
         Spacer(Modifier.height(16.dp)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp)); Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (button != null && onClick != null) { Spacer(Modifier.height(16.dp)); Button(onClick = onClick) { Text(button) } }
-    }
-}
-
-@Composable
-private fun NanoFilterChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(13.dp)
-    Box(
-        modifier.clip(shape)
-            .then(if (selected) Modifier.background(NanoAccentBrush) else Modifier.background(NanoSurfaceRaised))
-            .then(if (selected) Modifier else Modifier.border(1.dp, NanoOutline, shape))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 9.dp),
-    ) {
-        Text(label, color = if (selected) MaterialTheme.colorScheme.onPrimary else NanoMuted, style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
     }
 }

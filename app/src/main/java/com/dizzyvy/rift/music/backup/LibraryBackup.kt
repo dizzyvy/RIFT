@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object LibraryBackupCodec {
-    private const val FORMAT_VERSION = 1
+    private const val FORMAT_VERSION = 2
     private const val MAX_ENTRIES = 100_000
 
     fun encode(snapshot: LibraryBackupSnapshot): String = JSONObject()
@@ -24,7 +24,8 @@ object LibraryBackupCodec {
     fun decode(contents: String): LibraryBackupSnapshot {
         require(contents.length <= MAX_BACKUP_CHARS) { "Backup file is too large." }
         val root = JSONObject(contents)
-        require(root.optInt("formatVersion", -1) == FORMAT_VERSION) { "This backup version is not supported." }
+        val formatVersion = root.optInt("formatVersion", -1)
+        require(formatVersion in 1..FORMAT_VERSION) { "This backup version is not supported." }
         val playlistsJson = root.getJSONArray("playlists")
         val favoritesJson = root.getJSONArray("favorites")
         require(playlistsJson.length() + favoritesJson.length() <= MAX_ENTRIES) { "Backup contains too many entries." }
@@ -39,10 +40,16 @@ object LibraryBackupCodec {
         }
         require(playlists.map { it.name.lowercase() }.distinct().size == playlists.size) { "Backup contains duplicate playlist names." }
         val settingsJson = root.optJSONObject("settings") ?: JSONObject()
-        val settings = buildMap { settingsJson.keys().forEach { key -> put(key, settingsJson.getString(key)) } }
-        require(settings.keys.all { it in SETTING_KEYS }) { "Backup contains unknown settings." }
-        settings["themeMode"]?.let { require(it in setOf("system", "light", "dark", "amoled", "nano")) { "Backup contains an invalid theme." } }
-        settings["accentName"]?.let { require(it in ACCENTS) { "Backup contains an invalid accent." } }
+        val importedSettings = buildMap { settingsJson.keys().forEach { key -> put(key, settingsJson.getString(key)) } }
+        val legacyAppearanceKeys = setOf("accentName", "textColor", "text_color")
+        require(importedSettings.keys.all {
+            it in SETTING_KEYS || (formatVersion == 1 && it in legacyAppearanceKeys)
+        }) { "Backup contains unknown settings." }
+        val settings = importedSettings.filterKeys { it !in legacyAppearanceKeys }.toMutableMap()
+        if (formatVersion == 1) settings["themeMode"] = "system"
+        settings["themeMode"]?.let {
+            require(it in setOf("system", "light", "dark")) { "Backup contains an invalid theme." }
+        }
         settings["sortOrder"]?.let { require(it in SORT_ORDERS) { "Backup contains an invalid sort order." } }
         settings["sortAscending"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid sort direction." } }
         settings["hideShortTracks"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid short-track setting." } }
@@ -81,8 +88,7 @@ object LibraryBackupCodec {
 
     private const val MAX_BACKUP_CHARS = 16 * 1024 * 1024
     private val RESERVED_NAMES = setOf("favorites", "recently added", "recently played", "most played", "never played")
-    private val SETTING_KEYS = setOf("themeMode", "accentName", "sortOrder", "sortAscending", "hideShortTracks", "hideLongTracks", "hideLongTracksAfterMinutes", "hiddenFolders", "clickWheelSensitivity", "clickWheelHaptics")
+    private val SETTING_KEYS = setOf("themeMode", "sortOrder", "sortAscending", "hideShortTracks", "hideLongTracks", "hideLongTracksAfterMinutes", "hiddenFolders", "clickWheelSensitivity", "clickWheelHaptics")
     private val SORT_ORDERS = setOf("Title", "Artist", "Date added", "Duration")
-    private val ACCENTS = setOf("Chromatic", "Cyan", "Coral", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Silver", "Graphite")
     private val LONG_TRACK_FILTER_MINUTES = setOf(20, 30, 45, 60, 90, 120)
 }
