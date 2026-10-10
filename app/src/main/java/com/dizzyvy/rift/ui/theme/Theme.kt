@@ -35,7 +35,35 @@ val LibreFranklinFontFamily = FontFamily(
     Font(R.font.libre_franklin_bold, weight = FontWeight.Bold),
 )
 
-private val RiftTypography = Typography(defaultFontFamily = LibreFranklinFontFamily)
+private val baseTypography = Typography()
+
+private fun TextStyle.withFontFamily(
+    fontFamily: FontFamily,
+    fontWeight: FontWeight = this.fontWeight ?: FontWeight.Normal,
+    fontSynthesis: FontSynthesis = this.fontSynthesis ?: FontSynthesis.All,
+): TextStyle = copy(
+    fontFamily = fontFamily,
+    fontWeight = fontWeight,
+    fontSynthesis = fontSynthesis,
+)
+
+private val RiftTypography = baseTypography.copy(
+    displayLarge = baseTypography.displayLarge.withFontFamily(ShrikhandFontFamily, FontWeight.Normal, FontSynthesis.None),
+    displayMedium = baseTypography.displayMedium.withFontFamily(ShrikhandFontFamily, FontWeight.Normal, FontSynthesis.None),
+    displaySmall = baseTypography.displaySmall.withFontFamily(ShrikhandFontFamily, FontWeight.Normal, FontSynthesis.None),
+    headlineLarge = baseTypography.headlineLarge.withFontFamily(ShrikhandFontFamily, FontWeight.Normal, FontSynthesis.None),
+    headlineMedium = baseTypography.headlineMedium.withFontFamily(ShrikhandFontFamily, FontWeight.Normal, FontSynthesis.None),
+    headlineSmall = baseTypography.headlineSmall.withFontFamily(ShrikhandFontFamily, FontWeight.Normal, FontSynthesis.None),
+    titleLarge = baseTypography.titleLarge.withFontFamily(LibreFranklinFontFamily),
+    titleMedium = baseTypography.titleMedium.withFontFamily(LibreFranklinFontFamily),
+    titleSmall = baseTypography.titleSmall.withFontFamily(LibreFranklinFontFamily),
+    bodyLarge = baseTypography.bodyLarge.withFontFamily(LibreFranklinFontFamily),
+    bodyMedium = baseTypography.bodyMedium.withFontFamily(LibreFranklinFontFamily),
+    bodySmall = baseTypography.bodySmall.withFontFamily(LibreFranklinFontFamily),
+    labelLarge = baseTypography.labelLarge.withFontFamily(LibreFranklinFontFamily),
+    labelMedium = baseTypography.labelMedium.withFontFamily(LibreFranklinFontFamily),
+    labelSmall = baseTypography.labelSmall.withFontFamily(LibreFranklinFontFamily),
+)
 
 object RiftPalette {
     val coral = Color(0xFFFF7E7E)
