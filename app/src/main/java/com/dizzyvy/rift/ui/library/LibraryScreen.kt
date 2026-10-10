@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.text.DateFormat
 import java.util.Date
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
@@ -76,6 +77,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 fun LibraryScreen(
     state: LibraryUiState,
+    destination: String,
+    onDestinationChange: (String) -> Unit,
     playback: PlaybackSnapshot,
     artworkRepository: ArtworkRepository,
     onSearch: (String) -> Unit,
@@ -130,7 +133,6 @@ fun LibraryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val isTablet = LocalConfiguration.current.screenWidthDp >= 700
     var headerCollapsed by remember { mutableStateOf(false) }
-    var appearanceMenuOpen by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     var longTrackMenuOpen by remember { mutableStateOf(false) }
     var tabViewportBounds by remember { mutableStateOf<Pair<Float, Float>?>(null) }
@@ -193,6 +195,27 @@ fun LibraryScreen(
             .background(RiftBackgroundBrush())
             .padding(horizontal = 18.dp),
     ) {
+        if (destination == "Home") {
+            HomeDestination(
+                state = state,
+                playback = playback,
+                artworkRepository = artworkRepository,
+                onPlayTrack = onPlayTrack,
+                onOpenPlayer = onOpenPlayer,
+                onOpenLibrary = { onDestinationChange("Library"); onCategory("Songs") },
+                onScan = onRetry,
+                onRequestPermission = onRequestPermission,
+            )
+        } else if (destination == "Settings") {
+            SettingsDestination(
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
+                onScan = onRetry,
+                onImportM3u = onImportM3u,
+                onImportBackup = onImportBackup,
+                onExportBackup = onExportBackup,
+            )
+        } else {
         if (state.browseTitle != null) {
             TextButton(onClick = onBackFromGroup, modifier = Modifier.padding(top = 2.dp)) { Text("‹  ${state.category.uppercase()}") }
             ShrikhandHeading(state.browseTitle, MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
@@ -207,10 +230,10 @@ fun LibraryScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     ShrikhandHeading("RIFT", MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.onSurface))
-                    ShrikhandHeading("Your music", MaterialTheme.typography.headlineLarge)
+                    ShrikhandHeading("Good evening.", MaterialTheme.typography.headlineLarge)
                 }
                 Box {
-                    TextButton(onClick = { appearanceMenuOpen = true }) { Text("Appearance ▾") }
+                    TextButton(onClick = { onDestinationChange("Settings") }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "Open settings" }) { Text("⚙") }
                 }
             }
         }
@@ -267,11 +290,6 @@ fun LibraryScreen(
                     }
                 }
             }
-            if (appearanceMenuOpen) AppearanceOptions(
-                themeMode = themeMode,
-                onThemeModeChange = onThemeModeChange,
-                onDismiss = { appearanceMenuOpen = false },
-            )
             if (selectedTracks.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("${selectedTracks.size} selected", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
@@ -557,7 +575,7 @@ fun LibraryScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text(group.tracks.first().title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                            Text("${countLabel(group.tracks.size, "track")} in this group", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("${countLabel(group.tracks.size, "song")} in this group", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                         TextButton(onClick = { pendingDuplicateAction = PendingDuplicateAction.NotDuplicate(group) }) {
                                             Text("Not a duplicate")
@@ -642,7 +660,27 @@ fun LibraryScreen(
                     }
                     }
                 }
-                if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(vertical = 7.dp))
+            }
+        }
+        }
+        if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(horizontal = 2.dp, vertical = 7.dp))
+        NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
+            listOf("Home", "Library", "Playlists", "Search", "Settings").forEach { item ->
+                val selected = destination == item || (item == "Playlists" && destination == "Library" && state.category == "Playlists") || (item == "Search" && destination == "Library" && state.category == "Search")
+                NavigationBarItem(
+                    selected = selected,
+                    onClick = {
+                        onDestinationChange(if (item == "Playlists" || item == "Search") "Library" else item)
+                        when (item) {
+                            "Library" -> onCategory("Songs")
+                            "Playlists" -> onCategory("Playlists")
+                            "Search" -> onCategory("Search")
+                        }
+                    },
+                    icon = { Text(when (item) { "Home" -> "⌂"; "Library" -> "▤"; "Playlists" -> "♫"; "Search" -> "⌕"; else -> "⚙" }, style = MaterialTheme.typography.titleMedium) },
+                    label = { Text(item, maxLines = 1) },
+                    colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary, indicatorColor = MaterialTheme.colorScheme.surfaceVariant),
+                )
             }
         }
         SnackbarHost(hostState = snackbarHostState)
@@ -688,12 +726,12 @@ fun LibraryScreen(
     }
     pendingDuplicateAction?.let { action ->
         val title = when (action) {
-            is PendingDuplicateAction.Keep -> "Keep this track?"
+            is PendingDuplicateAction.Keep -> "Keep this song?"
             is PendingDuplicateAction.Delete -> "Delete this track?"
             is PendingDuplicateAction.NotDuplicate -> "Mark as not a duplicate?"
         }
         val message = when (action) {
-            is PendingDuplicateAction.Keep -> "Keep “${action.track.title}” and delete the other ${countLabel(action.group.tracks.size - 1, "track")} in this group from the device? This cannot be undone."
+            is PendingDuplicateAction.Keep -> "Keep “${action.track.title}” and delete the other ${countLabel(action.group.tracks.size - 1, "song")} in this group from the device? This cannot be undone."
             is PendingDuplicateAction.Delete -> "Delete “${action.track.title}” from this device? This cannot be undone."
             is PendingDuplicateAction.NotDuplicate -> "Remove this group from duplicate results? This choice will be saved in the app database."
         }
@@ -745,7 +783,7 @@ fun LibraryScreen(
             title = { ShrikhandHeading("Playlist imported", MaterialTheme.typography.headlineSmall) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${report.matchedCount} of ${report.totalCount} tracks matched in “${report.playlistName}”.")
+                    Text("${report.matchedCount} of ${report.totalCount} songs matched in “${report.playlistName}”.")
                     if (report.unmatchedEntries.isNotEmpty()) {
                         Text("Not matched:", fontWeight = FontWeight.SemiBold)
                         Column(
@@ -819,6 +857,117 @@ fun LibraryScreen(
     }
 }
 
+@Composable
+private fun ColumnScope.HomeDestination(
+    state: LibraryUiState,
+    playback: PlaybackSnapshot,
+    artworkRepository: ArtworkRepository,
+    onPlayTrack: (AudioTrack) -> Unit,
+    onOpenPlayer: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onScan: () -> Unit,
+    onRequestPermission: () -> Unit,
+) {
+    val featured = playback.currentTrack ?: state.tracks.firstOrNull()
+    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 20.dp, bottom = 16.dp)) {
+        Text("Your music · One song at a time.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ShrikhandHeading("Good evening.", MaterialTheme.typography.headlineLarge.copy(fontSize = 28.sp), modifier = Modifier.padding(top = 4.dp, bottom = 18.dp))
+        if (state.permissionRequired) {
+            EmptyPanel("♫", "Let your music in", "RIFT scans audio stored on your phone and SD card.", "Set up audio access", onRequestPermission)
+        } else if (state.isLoading && state.tracks.isEmpty()) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+        } else if (state.message != null) {
+            EmptyPanel("!", "Library unavailable", state.message, "Scan again", onScan)
+        } else if (featured != null) {
+            Text("PICK UP WHERE YOU LEFT OFF", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(onClick = { if (playback.currentTrack != null) onOpenPlayer() else onPlayTrack(featured) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(20.dp)) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AlbumArtwork(featured.uri, featured.title, artworkRepository, Modifier.size(74.dp))
+                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                        Text(featured.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(displayValue(featured.artist, "Unknown artist"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${state.tracks.size} songs in your library", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    FilledIconButton(onClick = { if (playback.currentTrack != null) onOpenPlayer() else onPlayTrack(featured) }, modifier = Modifier.size(48.dp)) { Text("▶", color = MaterialTheme.colorScheme.onPrimary) }
+                }
+            }
+        } else {
+            EmptyPanel("♫", "Your library is ready", "Add audio files to your phone or SD card, then scan to find them.", "Scan for music", onScan)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Recently added", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = onOpenLibrary, modifier = Modifier.heightIn(min = 48.dp)) { Text("See all") }
+        }
+        val recent = state.tracks.sortedByDescending { it.dateAddedSeconds }.take(5)
+        if (recent.isEmpty()) Text("Songs will appear here after your library is scanned.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        recent.forEach { track ->
+            val playing = playback.currentTrack?.uri == track.uri
+            Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).clip(RoundedCornerShape(14.dp)).clickable { onPlayTrack(track) }.padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.size(48.dp))
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text(track.title, color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(displayValue(track.artist, "Unknown artist"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (playing) Text("♫", color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { contentDescription = "Currently playing" })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.SettingsDestination(
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
+    onScan: () -> Unit,
+    onImportM3u: () -> Unit,
+    onImportBackup: () -> Unit,
+    onExportBackup: () -> Unit,
+) {
+    val context = LocalContext.current
+    val appVersion = remember(context) {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    }
+    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 20.dp, bottom = 20.dp)) {
+        ShrikhandHeading("Make RIFT yours", MaterialTheme.typography.headlineLarge.copy(fontSize = 28.sp), modifier = Modifier.padding(bottom = 18.dp))
+        Text("APPEARANCE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Pastel theme", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Choose how RIFT looks", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("light" to "Light", "dark" to "Dark", "system" to "System").forEach { (mode, label) ->
+                        FilterChip(selected = themeMode == mode, onClick = { onThemeModeChange(mode) }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
+                    }
+                }
+            }
+        }
+        Text("LIBRARY & DATA", modifier = Modifier.padding(top = 22.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SettingsAction("Manage library", "Scan your phone and SD card for music", "↻", onScan)
+        SettingsAction("Import playlist", "Bring in an M3U playlist", "＋", onImportM3u)
+        SettingsAction("Backup & restore", "Save or restore playlists and preferences", "⇧", onExportBackup)
+        SettingsAction("Restore backup", "Import a RIFT backup file", "⇩", onImportBackup)
+        Text("ABOUT", modifier = Modifier.padding(top = 22.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("RIFT · Local music, thoughtfully played.", modifier = Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Version ${appVersion ?: "unknown"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun SettingsAction(title: String, detail: String, icon: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(icon, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).wrapContentHeight(Alignment.CenterVertically), textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleLarge)
+    }
+}
+
 private sealed interface PendingDuplicateAction {
     val group: com.dizzyvy.rift.ui.library.DuplicateGroup
 
@@ -889,47 +1038,6 @@ private fun CollectionList(
 }
 
 @Composable
-private fun AppearanceOptions(
-    themeMode: String,
-    onThemeModeChange: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val themeOptions = listOf(
-        "system" to "Follow system",
-        "light" to "Light",
-        "dark" to "Dark",
-    )
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-        shadowElevation = 8.dp,
-    ) {
-        Column(
-            Modifier.heightIn(max = 360.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
-        ) {
-            Text(
-                "THEME",
-                Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            themeOptions.forEach { (value, label) ->
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    onClick = { onThemeModeChange(value); onDismiss() },
-                    trailingIcon = {
-                        if (themeMode.equals(value, ignoreCase = true)) Text("✓", color = MaterialTheme.colorScheme.primary)
-                    },
-                )
-            }
-        }
-    }
-}
-
 private fun formatTrackDate(dateAddedSeconds: Long): String =
     if (dateAddedSeconds > 0L) DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(dateAddedSeconds * 1_000L)) else "Unknown date"
 
@@ -1206,7 +1314,7 @@ private fun formatTime(milliseconds: Long): String {
 @Composable
 fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository, onClick: () -> Unit, onPlayPause: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, modifier: Modifier = Modifier) {
     val track = playback.currentTrack ?: return
-    val playerShape = RoundedCornerShape(18.dp)
+    val playerShape = RoundedCornerShape(16.dp)
     var horizontalDrag by remember(track.uri) { mutableStateOf(0f) }
     Surface(modifier.fillMaxWidth().clip(playerShape).pointerInput(track.uri) {
         detectHorizontalDragGestures(
@@ -1217,24 +1325,25 @@ fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository,
             },
             onHorizontalDrag = { change, amount -> change.consume(); horizontalDrag += amount },
         )
-    }, color = MaterialTheme.colorScheme.surface, shape = playerShape, tonalElevation = 4.dp) {
+    }, color = MaterialTheme.colorScheme.surfaceVariant, shape = playerShape, tonalElevation = 0.dp, shadowElevation = 3.dp) {
         Column {
-            Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
-                    AlbumTile(track, artworkRepository, Modifier.size(46.dp))
-                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(track.title, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                        Text(displayValue(track.artist, "Unknown artist"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                    }
-                }
-                TextButton(onClick = onPlayPause) { Text(if (playback.isPlaying) "❚❚" else "▶", color = MaterialTheme.colorScheme.primary) }
-            }
             LinearProgressIndicator(
                 progress = { if (playback.durationMs > 0L) (playback.positionMs.toFloat() / playback.durationMs.toFloat()).coerceIn(0f, 1f) else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
             )
+            Row(Modifier.height(62.dp).padding(start = 9.dp, end = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).fillMaxHeight().clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+                    AlbumTile(track, artworkRepository, Modifier.size(44.dp))
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text(track.title, color = if (playback.isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
+                        Text(displayValue(track.artist, "Unknown artist"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                IconButton(onClick = onPlayPause, modifier = Modifier.size(48.dp).semantics { contentDescription = if (playback.isPlaying) "Pause ${track.title}" else "Play ${track.title}" }) { Text(if (playback.isPlaying) "Ⅱ" else "▶", color = MaterialTheme.colorScheme.primary) }
+                IconButton(onClick = onNext, modifier = Modifier.size(48.dp).semantics { contentDescription = "Play next song" }) { Text("≫", color = MaterialTheme.colorScheme.onSurface) }
+            }
         }
     }
 }

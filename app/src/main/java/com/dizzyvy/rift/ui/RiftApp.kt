@@ -8,6 +8,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,6 +67,7 @@ fun RiftApp(
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
     var showPlayer by remember { mutableStateOf(false) }
+    var appDestination by rememberSaveable { mutableStateOf("Library") }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val refreshScope = rememberCoroutineScope()
@@ -266,6 +268,8 @@ fun RiftApp(
         } else {
             LibraryScreen(
                 state = libraryState,
+                destination = appDestination,
+                onDestinationChange = { appDestination = it },
                 playback = playback,
                 artworkRepository = artworkRepository,
                 onSearch = libraryViewModel::setSearchQuery,

@@ -133,7 +133,7 @@ fun NowPlayingScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-    val artworkHeight = (maxHeight * 0.2f).coerceIn(100.dp, 160.dp)
+    val artworkSize = minOf(maxWidth - 44.dp, maxHeight * 0.32f, 312.dp).coerceAtLeast(120.dp)
     val topGradient = Brush.verticalGradient(
         listOf(
             MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
@@ -157,7 +157,7 @@ fun NowPlayingScreen(
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
         )
-        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(artworkHeight).pointerInput(track.uri) {
+        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.size(artworkSize).align(Alignment.CenterHorizontally).pointerInput(track.uri) {
             var drag = 0f
             detectHorizontalDragGestures(
                 onDragEnd = { if (drag > 48f) onNext() else if (drag < -48f) onPrevious(); drag = 0f },
@@ -242,7 +242,7 @@ fun NowPlayingScreen(
                             AlertDialog(
                                 onDismissRequest = { confirmClearQueue = false },
                                 title = { ShrikhandHeading("Clear the queue?", MaterialTheme.typography.headlineSmall) },
-                                text = { Text("Remove all ${playback.queue.size} tracks from Up Next?") },
+                                text = { Text("Remove all ${playback.queue.size} songs from Up Next?") },
                                 confirmButton = {
                                     TextButton(
                                         onClick = {
