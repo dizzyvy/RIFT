@@ -74,6 +74,7 @@ fun NowPlayingScreen(
     val track = playback.currentTrack
     var loopStartMs by remember(track?.uri) { mutableStateOf<Long?>(null) }
     var loopEndMs by remember(track?.uri) { mutableStateOf<Long?>(null) }
+    var scrubPositionMs by remember(track?.uri) { mutableStateOf<Float?>(null) }
     val scope = rememberCoroutineScope()
     val queueSnackbarState = remember { SnackbarHostState() }
     var queueOpen by remember { mutableStateOf(false) }
@@ -136,8 +137,7 @@ fun NowPlayingScreen(
     val artworkHeight = (maxHeight * 0.2f).coerceIn(100.dp, 160.dp)
     val topGradient = Brush.verticalGradient(
         listOf(
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
-            MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
+            MaterialTheme.colorScheme.surface,
             MaterialTheme.colorScheme.background,
             MaterialTheme.colorScheme.background,
         ),
@@ -184,7 +184,23 @@ fun NowPlayingScreen(
             })
         }
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Slider(value = playback.positionMs.toFloat().coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()), onValueChange = { onSeek(it.toLong()) }, enabled = playback.durationMs > 0L, valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth().height(36.dp), colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)))
+            Slider(
+                value = (scrubPositionMs ?: playback.positionMs.toFloat())
+                    .coerceIn(0f, playback.durationMs.coerceAtLeast(1L).toFloat()),
+                onValueChange = { scrubPositionMs = it },
+                onValueChangeFinished = {
+                    scrubPositionMs?.let { onSeek(it.toLong()) }
+                    scrubPositionMs = null
+                },
+                enabled = playback.durationMs > 0L,
+                valueRange = 0f..playback.durationMs.coerceAtLeast(1L).toFloat(),
+                modifier = Modifier.fillMaxWidth().height(36.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
+                ),
+            )
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(playback.positionMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

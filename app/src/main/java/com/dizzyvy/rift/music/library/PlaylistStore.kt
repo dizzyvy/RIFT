@@ -167,9 +167,37 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     override suspend fun loadCachedTracks(): List<AudioTrack> = withContext(Dispatchers.IO) {
-        readableDatabase.query("track_cache", arrayOf("payload"), null, null, null, null, "payload COLLATE NOCASE").use { cursor ->
-            buildList { while (cursor.moveToNext()) runCatching { add(trackFromJson(JSONObject(cursor.getString(0)))) } }
+        val db = writableDatabase
+        val cachedRows = db.query("track_cache", arrayOf("uri", "payload"), null, null, null, null, "payload COLLATE NOCASE").use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
+            }
         }
+        val updates = mutableListOf<Pair<String, String>>()
+        val tracks = buildList {
+            cachedRows.forEach { (uri, payload) ->
+                try {
+                    val track = trackFromJson(JSONObject(payload))
+                    val cleanedTrack = cleanTrackMetadata(track)
+                    if (cleanedTrack !== track) updates += uri to cleanedTrack.toCacheJson().toString()
+                    add(cleanedTrack)
+                } catch (exception: org.json.JSONException) {
+                    android.util.Log.w(TAG, "Could not read cached track $uri", exception)
+                }
+            }
+        }
+        if (updates.isNotEmpty()) {
+            db.beginTransaction()
+            try {
+                updates.forEach { (uri, payload) ->
+                    db.execSQL("UPDATE track_cache SET payload = ? WHERE uri = ?", arrayOf(payload, uri))
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+        tracks
     }
 
     override suspend fun beginTrackCacheRefresh(): String = withContext(Dispatchers.IO) {
@@ -191,21 +219,32 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
                         ContentValues().apply { put("generation", generation); put("uri", uri) },
                         SQLiteDatabase.CONFLICT_IGNORE,
                     )
-                    val unchanged = db.query(
+                    val (unchanged, cachedMetadataCleaned) = db.query(
                         "track_cache",
-                        arrayOf("volume_name", "media_id", "date_modified_seconds", "size_bytes"),
+                        arrayOf("volume_name", "media_id", "date_modified_seconds", "size_bytes", "payload"),
                         "uri = ?",
                         arrayOf(uri),
                         null,
                         null,
                         null,
                     ).use { cursor ->
-                        cursor.moveToFirst() &&
-                            cursor.getString(0) == track.volumeName &&
-                            cursor.getLong(1) == track.id &&
-                            cursor.getLong(2) == track.dateModifiedSeconds &&
-                            cursor.getLong(3) == track.sizeBytes
+                        if (!cursor.moveToFirst()) {
+                            false to false
+                        } else {
+                            val sameMediaFile = cursor.getString(0) == track.volumeName &&
+                                cursor.getLong(1) == track.id &&
+                                cursor.getLong(2) == track.dateModifiedSeconds &&
+                                cursor.getLong(3) == track.sizeBytes
+                            val metadataCleaned = try {
+                                JSONObject(cursor.getString(4)).optBoolean("metadataCleaned", false)
+                            } catch (exception: org.json.JSONException) {
+                                android.util.Log.w(TAG, "Could not read cached metadata state for $uri", exception)
+                                false
+                            }
+                            sameMediaFile to metadataCleaned
+                        }
                     }
+                    val cleanedTrack = cleanTrackMetadata(track)
                     if (!unchanged) {
                         db.delete("track_artwork", "track_uri = ?", arrayOf(uri))
                         db.insertWithOnConflict("track_cache", null, ContentValues().apply {
@@ -215,8 +254,15 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
                             put("media_id", track.id)
                             put("date_modified_seconds", track.dateModifiedSeconds)
                             put("size_bytes", track.sizeBytes)
-                            put("payload", track.toCacheJson().toString())
+                            put("payload", cleanedTrack.toCacheJson().toString())
                         }, SQLiteDatabase.CONFLICT_REPLACE)
+                    } else if (!cachedMetadataCleaned) {
+                        db.execSQL(
+                            "UPDATE track_cache SET generation = ?, payload = ? WHERE uri = ?",
+                            arrayOf(generation, cleanedTrack.toCacheJson().toString(), uri),
+                        )
+                    } else {
+                        db.execSQL("UPDATE track_cache SET generation = ? WHERE uri = ?", arrayOf(generation, uri))
                     }
                 }
                 db.setTransactionSuccessful()
@@ -604,6 +650,7 @@ private fun AudioTrack.toCacheJson() = JSONObject()
     .put("dateAddedSeconds", dateAddedSeconds).put("dateModifiedSeconds", dateModifiedSeconds).put("sizeBytes", sizeBytes).put("mimeType", mimeType)
     .put("bitrate", bitrate).put("sampleRateHz", sampleRateHz).put("filePath", filePath).put("relativePath", relativePath)
     .put("genre", genre).put("year", year).put("artistId", artistId).put("albumId", albumId).put("volumeName", volumeName)
+    .put("metadataCleaned", metadataCleaned)
 
 private fun trackFromJson(json: JSONObject) = AudioTrack(
     id = json.optLong("id", -1L), uri = Uri.parse(json.getString("uri")), title = json.optString("title"),
@@ -614,4 +661,5 @@ private fun trackFromJson(json: JSONObject) = AudioTrack(
     sampleRateHz = json.optInt("sampleRateHz", -1), filePath = json.optString("filePath"), relativePath = json.optString("relativePath"),
     genre = json.optString("genre"), year = json.optInt("year"), artistId = json.optLong("artistId", -1L),
     albumId = json.optLong("albumId", -1L), volumeName = json.optString("volumeName", "external"),
+    metadataCleaned = json.optBoolean("metadataCleaned", false),
 )

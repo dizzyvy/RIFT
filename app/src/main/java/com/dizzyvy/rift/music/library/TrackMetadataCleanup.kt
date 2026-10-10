@@ -26,6 +26,7 @@ private val genreMappings = mapOf(
 private val ignoredVideoGenres = setOf("music", "people & blogs", "entertainment")
 
 fun cleanTrackMetadata(track: AudioTrack): AudioTrack {
+    if (track.metadataCleaned) return track
     val originalArtist = cleanMetadataValue(track.artist)
     val originalAlbumArtist = cleanMetadataValue(track.albumArtist)
     val noTags = isUnknownMetadata(originalArtist) && isUnknownMetadata(originalAlbumArtist) &&
@@ -42,9 +43,11 @@ fun cleanTrackMetadata(track: AudioTrack): AudioTrack {
     var albumArtist = originalAlbumArtist
     if (prefixMatch != null) {
         val prefix = cleanMetadataValue(prefixMatch.groupValues[1])
-        if (prefix.isNotBlank()) {
+        val knownArtist = !isUnknownMetadata(originalArtist) && !isUploaderChannel(originalArtist)
+        val matchingArtist = originalArtist.equals(prefix, ignoreCase = true)
+        if (prefix.isNotBlank() && (!knownArtist || matchingArtist || isUploaderChannel(originalArtist))) {
             title = cleanTitleTags(prefixMatch.groupValues[2])
-            artist = prefix
+            if (!knownArtist) artist = prefix
             if (isUnknownMetadata(albumArtist) || isUploaderChannel(albumArtist)) albumArtist = prefix
         }
     }
@@ -55,6 +58,7 @@ fun cleanTrackMetadata(track: AudioTrack): AudioTrack {
         albumArtist = albumArtist,
         album = cleanAlbumName(track.album, track.relativePath, track.filePath),
         genre = canonicalGenre(track.genre).orEmpty(),
+        metadataCleaned = true,
     )
 }
 

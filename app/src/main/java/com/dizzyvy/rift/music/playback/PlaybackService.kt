@@ -29,11 +29,29 @@ class PlaybackService : MediaSessionService() {
     private val playbackIo = Executors.newSingleThreadExecutor()
     private val playbackStore by lazy { SqlitePlaylistStore(applicationContext) }
     @Volatile private var destroyed = false
+    private var transientFocusLoss = false
+    private var resumeAfterFocusGain = false
     private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (change <= AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-            // A call or another transient interruption pauses playback and never auto-resumes.
-            mediaSession?.player?.pause()
+        val player = mediaSession?.player ?: return@OnAudioFocusChangeListener
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                val shouldResume = resumeAfterFocusGain
+                transientFocusLoss = false
+                resumeAfterFocusGain = false
+                if (shouldResume) player.play()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                resumeAfterFocusGain = player.playWhenReady
+                transientFocusLoss = true
+                player.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                transientFocusLoss = false
+                resumeAfterFocusGain = false
+                player.pause()
+            }
         }
     }
     private val audioFocusRequest by lazy {
@@ -71,7 +89,7 @@ class PlaybackService : MediaSessionService() {
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     if (playWhenReady) {
                         if (!requestAudioFocus()) pause()
-                    } else {
+                    } else if (!transientFocusLoss) {
                         abandonAudioFocus()
                     }
                 }

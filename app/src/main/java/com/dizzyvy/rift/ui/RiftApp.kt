@@ -1,5 +1,6 @@
 package com.dizzyvy.rift.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -66,6 +67,9 @@ fun RiftApp(
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
     var showPlayer by remember { mutableStateOf(false) }
+    BackHandler(enabled = showPlayer || libraryState.browseTitle != null) {
+        if (showPlayer) showPlayer = false else libraryViewModel.closeGroup()
+    }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val refreshScope = rememberCoroutineScope()

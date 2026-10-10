@@ -82,10 +82,13 @@ private fun buildGenres(tracks: List<AudioTrack>): List<LibraryCollectionItem> =
     .map { (genre, items) -> LibraryCollectionItem(genre.lowercase(), genre, "Genre", items.size, items.first().uri) }
     .sortedWith(compareByDescending<LibraryCollectionItem> { it.trackCount }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 
-private fun buildYears(tracks: List<AudioTrack>): List<LibraryCollectionItem> = tracks
-    .groupBy { it.year.takeIf { year -> year in 1000..9999 }?.toString() ?: "Unknown" }
-    .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
-    .sortedWith(compareBy<LibraryCollectionItem> { it.title == "Unknown" }.thenByDescending { it.title.toIntOrNull() ?: 0 })
+private fun buildYears(tracks: List<AudioTrack>): List<LibraryCollectionItem> {
+    val latestValidYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) + 1
+    return tracks
+        .groupBy { it.year.takeIf { year -> year in 1000..latestValidYear }?.toString() ?: "Unknown" }
+        .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
+        .sortedWith(compareBy<LibraryCollectionItem> { it.title == "Unknown" }.thenByDescending { it.title.toIntOrNull() ?: 0 })
+}
 
 data class DuplicateGroup(val id: String, val tracks: List<AudioTrack>, val reason: String)
 
