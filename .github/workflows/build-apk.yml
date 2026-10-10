@@ -24,12 +24,6 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android API 37
-        run: sdkmanager "platforms;android-37"
-
       - name: Build debug APK
         run: |
           chmod +x ./gradlew
