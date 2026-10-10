@@ -335,6 +335,9 @@ fun LibraryScreen(
                             onOpenArtist = onOpenArtist,
                             onOpenAlbum = onOpenAlbum,
                             onOpenPlaylist = onOpenPlaylist,
+                            onRequestRename = { playlist -> playlistToRename = playlist; playlistNameInput = playlist.name },
+                            onRequestDelete = { playlist -> playlistToDelete = playlist },
+                            onExportM3u = onExportM3u,
                         )
                         state.browseTitle != null -> {
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -761,6 +764,9 @@ private fun SearchResults(
     onOpenArtist: (ArtistBrowseItem) -> Unit,
     onOpenAlbum: (AlbumBrowseItem) -> Unit,
     onOpenPlaylist: (DevicePlaylist) -> Unit,
+    onRequestRename: (DevicePlaylist) -> Unit,
+    onRequestDelete: (DevicePlaylist) -> Unit,
+    onExportM3u: (DevicePlaylist) -> Unit,
 ) {
     LazyColumn(contentPadding = PaddingValues(end = 8.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         if (tracks.isNotEmpty()) {
@@ -794,8 +800,8 @@ private fun SearchResults(
                     playlist = playlist,
                     artworkRepository = artworkRepository,
                     onOpen = { onOpenPlaylist(playlist) },
-                    onRename = { playlistToRename = playlist; playlistNameInput = playlist.name },
-                    onDelete = { playlistToDelete = playlist },
+                    onRename = { onRequestRename(playlist) },
+                    onDelete = { onRequestDelete(playlist) },
                     onExport = { onExportM3u(playlist) },
                 )
             }
