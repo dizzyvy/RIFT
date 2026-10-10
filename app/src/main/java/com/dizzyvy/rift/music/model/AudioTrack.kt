@@ -12,6 +12,7 @@ data class AudioTrack(
     val album: String,
     val durationMs: Long,
     val dateAddedSeconds: Long = 0L,
+    val dateModifiedSeconds: Long = 0L,
     val sizeBytes: Long = 0L,
     val mimeType: String = "",
     val bitrate: Int = -1,

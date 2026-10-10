@@ -40,6 +40,8 @@ interface PlaylistStore {
     suspend fun beginTrackCacheRefresh(): String
     suspend fun cacheTracks(generation: String, tracks: List<AudioTrack>)
     suspend fun finishTrackCacheRefresh(generation: String)
+    suspend fun loadCachedArtwork(uri: Uri): ByteArray? = null
+    suspend fun cacheArtwork(uri: Uri, thumbnail: ByteArray) = Unit
     suspend fun loadSettings(): Map<String, String>
     suspend fun saveSettings(settings: Map<String, String>)
     suspend fun createBackupSnapshot(tracks: List<AudioTrack>): LibraryBackupSnapshot
@@ -54,8 +56,10 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         db.execSQL("CREATE TABLE favorites (uri TEXT PRIMARY KEY NOT NULL)")
         db.execSQL("CREATE TABLE track_history (uri TEXT PRIMARY KEY NOT NULL, play_count INTEGER NOT NULL, last_played_ms INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE hidden_folders (path TEXT PRIMARY KEY NOT NULL)")
-        db.execSQL("CREATE TABLE track_cache (uri TEXT PRIMARY KEY NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE track_cache (uri TEXT PRIMARY KEY NOT NULL, generation TEXT NOT NULL, volume_name TEXT NOT NULL, media_id INTEGER NOT NULL, date_modified_seconds INTEGER NOT NULL, size_bytes INTEGER NOT NULL, payload TEXT NOT NULL)")
         db.execSQL("CREATE INDEX track_cache_generation ON track_cache(generation)")
+        db.execSQL("CREATE TABLE track_scan_seen (generation TEXT NOT NULL, uri TEXT NOT NULL, PRIMARY KEY (generation, uri))")
+        db.execSQL("CREATE TABLE track_artwork (track_uri TEXT PRIMARY KEY NOT NULL, thumbnail BLOB NOT NULL)")
         db.execSQL("CREATE TABLE app_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
         db.execSQL("CREATE TABLE artist_aliases (alias_key TEXT PRIMARY KEY NOT NULL, alias_name TEXT NOT NULL, canonical_name TEXT NOT NULL)")
         db.execSQL("CREATE TABLE not_duplicate_pairs (pair_key TEXT PRIMARY KEY NOT NULL, first_uri TEXT NOT NULL, second_uri TEXT NOT NULL)")
@@ -76,6 +80,14 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
             db.execSQL("CREATE TABLE not_duplicate_pairs (pair_key TEXT PRIMARY KEY NOT NULL, first_uri TEXT NOT NULL, second_uri TEXT NOT NULL)")
             db.execSQL("CREATE TABLE playback_state (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
             migrateHiddenFoldersSetting(db)
+        }
+        if (oldVersion < 9) {
+            db.execSQL("ALTER TABLE track_cache ADD COLUMN volume_name TEXT NOT NULL DEFAULT 'external'")
+            db.execSQL("ALTER TABLE track_cache ADD COLUMN media_id INTEGER NOT NULL DEFAULT -1")
+            db.execSQL("ALTER TABLE track_cache ADD COLUMN date_modified_seconds INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE track_cache ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("CREATE TABLE track_scan_seen (generation TEXT NOT NULL, uri TEXT NOT NULL, PRIMARY KEY (generation, uri))")
+            db.execSQL("CREATE TABLE track_artwork (track_uri TEXT PRIMARY KEY NOT NULL, thumbnail BLOB NOT NULL)")
         }
     }
 
@@ -160,7 +172,11 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         }
     }
 
-    override suspend fun beginTrackCacheRefresh(): String = java.util.UUID.randomUUID().toString()
+    override suspend fun beginTrackCacheRefresh(): String = withContext(Dispatchers.IO) {
+        val generation = java.util.UUID.randomUUID().toString()
+        writableDatabase.delete("track_scan_seen", null, null)
+        generation
+    }
 
     override suspend fun cacheTracks(generation: String, tracks: List<AudioTrack>) = withContext(Dispatchers.IO) {
         val db = writableDatabase
@@ -168,11 +184,40 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
             db.beginTransaction()
             try {
                 batch.forEach { track ->
-                    db.insertWithOnConflict("track_cache", null, ContentValues().apply {
-                        put("uri", track.uri.toString())
-                        put("generation", generation)
-                        put("payload", track.toCacheJson().toString())
-                    }, SQLiteDatabase.CONFLICT_REPLACE)
+                    val uri = track.uri.toString()
+                    db.insertWithOnConflict(
+                        "track_scan_seen",
+                        null,
+                        ContentValues().apply { put("generation", generation); put("uri", uri) },
+                        SQLiteDatabase.CONFLICT_IGNORE,
+                    )
+                    val unchanged = db.query(
+                        "track_cache",
+                        arrayOf("volume_name", "media_id", "date_modified_seconds", "size_bytes"),
+                        "uri = ?",
+                        arrayOf(uri),
+                        null,
+                        null,
+                        null,
+                    ).use { cursor ->
+                        cursor.moveToFirst() &&
+                            cursor.getString(0) == track.volumeName &&
+                            cursor.getLong(1) == track.id &&
+                            cursor.getLong(2) == track.dateModifiedSeconds &&
+                            cursor.getLong(3) == track.sizeBytes
+                    }
+                    if (!unchanged) {
+                        db.delete("track_artwork", "track_uri = ?", arrayOf(uri))
+                        db.insertWithOnConflict("track_cache", null, ContentValues().apply {
+                            put("uri", uri)
+                            put("generation", generation)
+                            put("volume_name", track.volumeName)
+                            put("media_id", track.id)
+                            put("date_modified_seconds", track.dateModifiedSeconds)
+                            put("size_bytes", track.sizeBytes)
+                            put("payload", track.toCacheJson().toString())
+                        }, SQLiteDatabase.CONFLICT_REPLACE)
+                    }
                 }
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }
@@ -180,7 +225,42 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     override suspend fun finishTrackCacheRefresh(generation: String) = withContext(Dispatchers.IO) {
-        writableDatabase.delete("track_cache", "generation != ?", arrayOf(generation))
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(
+                "track_cache",
+                "uri NOT IN (SELECT uri FROM track_scan_seen WHERE generation = ?)",
+                arrayOf(generation),
+            )
+            db.delete("track_artwork", "track_uri NOT IN (SELECT uri FROM track_cache)", null)
+            db.delete("track_scan_seen", "generation = ?", arrayOf(generation))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        Unit
+    }
+
+    override suspend fun loadCachedArtwork(uri: Uri): ByteArray? = withContext(Dispatchers.IO) {
+        readableDatabase.query(
+            "track_artwork",
+            arrayOf("thumbnail"),
+            "track_uri = ?",
+            arrayOf(uri.toString()),
+            null,
+            null,
+            null,
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getBlob(0) else null }
+    }
+
+    override suspend fun cacheArtwork(uri: Uri, thumbnail: ByteArray) = withContext(Dispatchers.IO) {
+        writableDatabase.insertWithOnConflict(
+            "track_artwork",
+            null,
+            ContentValues().apply { put("track_uri", uri.toString()); put("thumbnail", thumbnail) },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
         Unit
     }
 
@@ -498,7 +578,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     private companion object {
         val LEGACY_APPEARANCE_SETTINGS = setOf("accentName", "textColor", "text_color")
         const val DATABASE_NAME = "sj_music_library.db"
-        const val DATABASE_VERSION = 8
+        const val DATABASE_VERSION = 9
         const val CACHE_BATCH_SIZE = 200
         const val SETTING_HIDDEN_FOLDERS = "hiddenFolders"
         const val SETTING_LYRICS_TREE = "lyricsTreeUri"
@@ -521,7 +601,7 @@ private fun backupRef(track: AudioTrack) = BackupTrackRef(track.uri.toString(), 
 private fun AudioTrack.toCacheJson() = JSONObject()
     .put("id", id).put("uri", uri.toString()).put("title", title).put("displayName", displayName)
     .put("artist", artist).put("albumArtist", albumArtist).put("album", album).put("durationMs", durationMs)
-    .put("dateAddedSeconds", dateAddedSeconds).put("sizeBytes", sizeBytes).put("mimeType", mimeType)
+    .put("dateAddedSeconds", dateAddedSeconds).put("dateModifiedSeconds", dateModifiedSeconds).put("sizeBytes", sizeBytes).put("mimeType", mimeType)
     .put("bitrate", bitrate).put("sampleRateHz", sampleRateHz).put("filePath", filePath).put("relativePath", relativePath)
     .put("genre", genre).put("year", year).put("artistId", artistId).put("albumId", albumId).put("volumeName", volumeName)
 
@@ -529,6 +609,7 @@ private fun trackFromJson(json: JSONObject) = AudioTrack(
     id = json.optLong("id", -1L), uri = Uri.parse(json.getString("uri")), title = json.optString("title"),
     displayName = json.optString("displayName"), artist = json.optString("artist"), albumArtist = json.optString("albumArtist"),
     album = json.optString("album"), durationMs = json.optLong("durationMs"), dateAddedSeconds = json.optLong("dateAddedSeconds"),
+    dateModifiedSeconds = json.optLong("dateModifiedSeconds"),
     sizeBytes = json.optLong("sizeBytes"), mimeType = json.optString("mimeType"), bitrate = json.optInt("bitrate", -1),
     sampleRateHz = json.optInt("sampleRateHz", -1), filePath = json.optString("filePath"), relativePath = json.optString("relativePath"),
     genre = json.optString("genre"), year = json.optInt("year"), artistId = json.optLong("artistId", -1L),

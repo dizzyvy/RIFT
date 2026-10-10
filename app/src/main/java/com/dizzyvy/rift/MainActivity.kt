@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         repository = MediaStoreAudioLibraryRepository(applicationContext)
         playlistStore = SqlitePlaylistStore(applicationContext)
-        artworkRepository = EmbeddedArtworkRepository(applicationContext)
+        artworkRepository = EmbeddedArtworkRepository(applicationContext, playlistStore)
         playbackController = Media3PlaybackController(applicationContext, artworkRepository)
         requestedAudioPermissionBefore = getPreferences(MODE_PRIVATE)
             .getBoolean(KEY_REQUESTED_AUDIO_PERMISSION, false)

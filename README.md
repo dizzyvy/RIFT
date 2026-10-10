@@ -23,8 +23,10 @@ The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 ## Features
 
 - Scans device and SD card audio through MediaStore
+- Shows a local library cache immediately and incrementally refreshes it when MediaStore changes
 - Browses Songs, Artists, Albums, and playlists already indexed on the device
 - Reads embedded album art from local audio files, with a colorful gradient fallback when art is missing or unreadable
+- Caches album-art thumbnails in the app database for faster offline browsing
 - Searches titles, artists, and albums
 - Plays tracks in the background with a Media3 session, system notification, lock-screen controls, and audio focus handling
 - Remembers the last track, position, shuffle, and repeat mode between launches

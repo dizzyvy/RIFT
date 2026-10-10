@@ -29,6 +29,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Build
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dizzyvy.rift.music.library.AudioLibraryRepository
 import com.dizzyvy.rift.music.library.PlaylistStore
@@ -64,6 +67,7 @@ fun RiftApp(
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
     var showPlayer by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val refreshScope = rememberCoroutineScope()
     var pendingExportText by remember { mutableStateOf("") }
     var pendingBackupText by remember { mutableStateOf("") }
@@ -209,6 +213,20 @@ fun RiftApp(
 
     LaunchedEffect(hasAudioPermission) {
         libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = false)
+    }
+
+    DisposableEffect(lifecycle, hasAudioPermission, libraryViewModel) {
+        var resumedOnce = false
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (resumedOnce && hasAudioPermission) {
+                    libraryViewModel.loadLibrary(hasAudioPermission = true, forceRefresh = true)
+                }
+                resumedOnce = true
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
 
     RiftTheme(mode = themeMode) {

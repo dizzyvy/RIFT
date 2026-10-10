@@ -116,6 +116,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.DATE_MODIFIED,
             MediaStore.Audio.Media.YEAR,
             MediaStore.Audio.Media.SIZE,
             MediaStore.Audio.Media.MIME_TYPE,
@@ -143,6 +144,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
                 val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val dateAddedColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+                val dateModifiedColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_MODIFIED)
                 val yearColumn = cursor.getColumnIndex(MediaStore.Audio.Media.YEAR)
                 val sizeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
                 val mimeTypeColumn = cursor.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
@@ -174,6 +176,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 album = cursor.getString(albumColumn).orEmpty(),
                                 durationMs = cursor.getLong(durationColumn),
                                 dateAddedSeconds = if (dateAddedColumn >= 0) cursor.getLong(dateAddedColumn) else 0L,
+                                dateModifiedSeconds = if (dateModifiedColumn >= 0) cursor.getLong(dateModifiedColumn) else 0L,
                                 sizeBytes = if (sizeColumn >= 0) cursor.getLong(sizeColumn) else 0L,
                                 mimeType = if (mimeTypeColumn >= 0) cursor.getString(mimeTypeColumn).orEmpty() else "",
                                 bitrate = if (bitrateColumn >= 0 && !cursor.isNull(bitrateColumn)) cursor.getInt(bitrateColumn) else -1,

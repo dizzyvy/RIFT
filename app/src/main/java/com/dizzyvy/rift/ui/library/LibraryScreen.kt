@@ -394,14 +394,27 @@ fun LibraryScreen(
                 }
             }
         }
-        if (state.isLoading && state.scanTotal != null) {
-            val total = state.scanTotal.coerceAtLeast(state.scanProcessed)
-            Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp)) {
-                LinearProgressIndicator(
-                    progress = if (total > 0) (state.scanProcessed.toFloat() / total).coerceIn(0f, 1f) else 0f,
-                    modifier = Modifier.fillMaxWidth(),
+        if (state.isLoading && (state.scanTotal != null || state.tracks.isNotEmpty())) {
+            val total = state.scanTotal?.coerceAtLeast(state.scanProcessed)
+            Row(
+                Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    total?.let { "Updating library · ${state.scanProcessed} of $it" } ?: "Updating library",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text("Scanning music · ${state.scanProcessed} of $total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                if (total != null) {
+                    LinearProgressIndicator(
+                        progress = if (total > 0) (state.scanProcessed.toFloat() / total).coerceIn(0f, 1f) else 0f,
+                        modifier = Modifier.width(72.dp),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.width(72.dp))
+                }
             }
         }
         when {
