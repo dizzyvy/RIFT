@@ -1,5 +1,6 @@
 package com.dizzyvy.rift.ui.theme
 
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -7,13 +8,34 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontSynthesis
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
+import com.dizzyvy.rift.R
 
 private const val SECONDARY_TEXT_ALPHA = 0.7f
+
+val ShrikhandFontFamily = FontFamily(
+    Font(R.font.shrikhand_regular, weight = FontWeight.Normal),
+)
+
+val LibreFranklinFontFamily = FontFamily(
+    Font(R.font.libre_franklin_regular, weight = FontWeight.Normal),
+    Font(R.font.libre_franklin_medium, weight = FontWeight.Medium),
+    Font(R.font.libre_franklin_semibold, weight = FontWeight.SemiBold),
+    Font(R.font.libre_franklin_bold, weight = FontWeight.Bold),
+)
+
+private val RiftTypography = Typography(defaultFontFamily = LibreFranklinFontFamily)
 
 object RiftPalette {
     val coral = Color(0xFFFF7E7E)
@@ -147,7 +169,34 @@ fun RiftTheme(
             scrim = roles.background,
         )
     }
-    MaterialTheme(colorScheme = palette, content = content)
+    MaterialTheme(colorScheme = palette, typography = RiftTypography, content = content)
+}
+
+@Composable
+fun ShrikhandHeading(
+    text: String,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: androidx.compose.ui.text.style.TextOverflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+    autoSize: TextAutoSize? = null,
+) {
+    val headingStyle = style.copy(
+        fontFamily = ShrikhandFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSynthesis = FontSynthesis.None,
+        fontSize = if (style.fontSize.value < 20f) 20.sp else style.fontSize,
+    )
+    androidx.compose.material3.Text(
+        text = text,
+        modifier = modifier,
+        style = headingStyle,
+        maxLines = maxLines,
+        overflow = overflow,
+        textAlign = textAlign,
+        autoSize = autoSize,
+    )
 }
 
 @Composable

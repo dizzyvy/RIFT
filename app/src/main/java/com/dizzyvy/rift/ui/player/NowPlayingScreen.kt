@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -32,6 +33,7 @@ import com.dizzyvy.rift.music.lyrics.LocalLyricsRepository
 import com.dizzyvy.rift.music.playback.PlaybackSnapshot
 import com.dizzyvy.rift.ui.components.AlbumArtwork
 import com.dizzyvy.rift.ui.theme.RiftBackgroundBrush
+import com.dizzyvy.rift.ui.theme.ShrikhandHeading
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -91,7 +93,7 @@ fun NowPlayingScreen(
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 22.dp)) {
             TextButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp)) { Text("‹  LIBRARY") }
             Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Nothing playing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                ShrikhandHeading("Nothing playing", MaterialTheme.typography.headlineSmall)
                 TextButton(onClick = onBack) { Text("Browse your music") }
             }
         }
@@ -149,7 +151,12 @@ fun NowPlayingScreen(
             TextButton(onClick = onBack, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("‹  LIBRARY") }
             TextButton(onClick = { moreSheetOpen = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("More") }
         }
-        Text("NOW PLAYING", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ShrikhandHeading(
+            "NOW PLAYING",
+            MaterialTheme.typography.labelMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
         AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(artworkHeight).pointerInput(track.uri) {
             var drag = 0f
             detectHorizontalDragGestures(
@@ -157,7 +164,15 @@ fun NowPlayingScreen(
                 onHorizontalDrag = { change, amount -> change.consume(); drag += amount },
             )
         })
-        Text(track.title, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        ShrikhandHeading(
+            track.title,
+            MaterialTheme.typography.titleLarge,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            maxLines = 2,
+            overflow = TextOverflow.Clip,
+            textAlign = TextAlign.Center,
+            autoSize = TextAutoSize.StepBased(minFontSize = 20.sp, maxFontSize = 22.sp),
+        )
         val album = displayMetadata(track.album, "Unknown album")
         val artist = displayMetadata(track.artist, "Unknown artist")
         val metadata = if (album.equals(track.title.trim(), ignoreCase = true)) artist else "$artist  ·  $album"
@@ -190,7 +205,7 @@ fun NowPlayingScreen(
     if (moreSheetOpen) {
         ModalBottomSheet(onDismissRequest = { moreSheetOpen = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp)) {
-                Text("More playback options", style = MaterialTheme.typography.titleLarge)
+                ShrikhandHeading("More playback options", MaterialTheme.typography.titleLarge)
                 TextButton(onClick = { queueOpen = !queueOpen }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if (queueOpen) "Hide Up Next" else "Show Up Next") }
                 if (queueOpen) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -226,7 +241,7 @@ fun NowPlayingScreen(
                         if (confirmClearQueue) {
                             AlertDialog(
                                 onDismissRequest = { confirmClearQueue = false },
-                                title = { Text("Clear the queue?") },
+                                title = { ShrikhandHeading("Clear the queue?", MaterialTheme.typography.headlineSmall) },
                                 text = { Text("Remove all ${playback.queue.size} tracks from Up Next?") },
                                 confirmButton = {
                                     TextButton(
@@ -285,7 +300,11 @@ fun NowPlayingScreen(
     }
     if (showPlaylistSheet) {
         ModalBottomSheet(onDismissRequest = { showPlaylistSheet = false }) {
-            Text("Add ${track.title} to playlist", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
+            ShrikhandHeading(
+                "Add ${track.title} to playlist",
+                MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 22.dp),
+            )
             TextButton(onClick = { playlistName = ""; tracksToCreate = listOf(track); showPlaylistSheet = false; showCreatePlaylistDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
             playlists.filter { it.isLocal && (!it.isAuto || it.autoKind == "favorites") }.forEach { playlist ->
                 TextButton(onClick = { onAddTrackToPlaylist(playlist, track); showPlaylistSheet = false }, modifier = Modifier.fillMaxWidth()) { Text("Add to ${playlist.name}") }
@@ -296,7 +315,7 @@ fun NowPlayingScreen(
     if (showSleepTimerDialog) {
         AlertDialog(
             onDismissRequest = { showSleepTimerDialog = false },
-            title = { Text("Sleep timer") },
+            title = { ShrikhandHeading("Sleep timer", MaterialTheme.typography.headlineSmall) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Stop playback after")
@@ -339,7 +358,7 @@ fun NowPlayingScreen(
     if (showCreatePlaylistDialog) {
         AlertDialog(
             onDismissRequest = { showCreatePlaylistDialog = false },
-            title = { Text("Create playlist") },
+            title = { ShrikhandHeading("Create playlist", MaterialTheme.typography.headlineSmall) },
             text = { OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, singleLine = true, label = { Text("Playlist name") }) },
             confirmButton = { TextButton(enabled = playlistName.isNotBlank(), onClick = { onCreatePlaylist(playlistName.trim(), tracksToCreate); tracksToCreate = emptyList(); showCreatePlaylistDialog = false }) { Text("Create") } },
             dismissButton = { TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Cancel") } },

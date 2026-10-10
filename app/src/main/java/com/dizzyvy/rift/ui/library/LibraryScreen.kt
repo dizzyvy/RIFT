@@ -66,6 +66,7 @@ import com.dizzyvy.rift.ui.components.AlbumArtwork
 import com.dizzyvy.rift.ui.theme.RiftOutlinedButton as OutlinedButton
 import com.dizzyvy.rift.ui.theme.RiftTextButton as TextButton
 import com.dizzyvy.rift.ui.theme.RiftBackgroundBrush
+import com.dizzyvy.rift.ui.theme.ShrikhandHeading
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -193,7 +194,7 @@ fun LibraryScreen(
     ) {
         if (state.browseTitle != null) {
             TextButton(onClick = onBackFromGroup, modifier = Modifier.padding(top = 2.dp)) { Text("‹  ${state.category.uppercase()}") }
-            Text(state.browseTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+            ShrikhandHeading(state.browseTitle, MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
             if (state.activePlaylist?.isLocal == true) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onPlayPlaylist(false) }, modifier = Modifier.weight(1f)) { Text("Play all") }
@@ -204,8 +205,8 @@ fun LibraryScreen(
             Spacer(Modifier.height(5.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("RIFT", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                    Text("Your music", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    ShrikhandHeading("RIFT", MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.onSurface))
+                    ShrikhandHeading("Your music", MaterialTheme.typography.headlineLarge)
                 }
                 Box {
                     TextButton(onClick = { appearanceMenuOpen = true }) { Text("Appearance ▾") }
@@ -635,7 +636,7 @@ fun LibraryScreen(
     trackToDelete?.let { track ->
         AlertDialog(
             onDismissRequest = { trackToDelete = null },
-            title = { Text("Delete from device?") },
+            title = { ShrikhandHeading("Delete from device?", MaterialTheme.typography.headlineSmall) },
             text = { Text("Delete ${track.title} from this device? This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
@@ -649,7 +650,7 @@ fun LibraryScreen(
     folderToHide?.let { path ->
         AlertDialog(
             onDismissRequest = { folderToHide = null },
-            title = { Text("Hide folder?") },
+            title = { ShrikhandHeading("Hide folder?", MaterialTheme.typography.headlineSmall) },
             text = { Text("Hide $path and its songs from the library? You can unhide it later from Hidden folders.") },
             confirmButton = {
                 TextButton(onClick = {
@@ -684,7 +685,7 @@ fun LibraryScreen(
         }
         AlertDialog(
             onDismissRequest = { pendingDuplicateAction = null },
-            title = { Text(title) },
+            title = { ShrikhandHeading(title, MaterialTheme.typography.headlineSmall) },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = {
@@ -704,7 +705,7 @@ fun LibraryScreen(
     artistToMerge?.let { artist ->
         AlertDialog(
             onDismissRequest = { artistToMerge = null },
-            title = { Text("Merge artist names") },
+            title = { ShrikhandHeading("Merge artist names", MaterialTheme.typography.headlineSmall) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Treat this name as ${artist.name} in your library. The audio tags will not be changed.")
@@ -727,7 +728,7 @@ fun LibraryScreen(
     state.playlistImportReport?.let { report ->
         AlertDialog(
             onDismissRequest = onClearPlaylistImportReport,
-            title = { Text("Playlist imported") },
+            title = { ShrikhandHeading("Playlist imported", MaterialTheme.typography.headlineSmall) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${report.matchedCount} of ${report.totalCount} tracks matched in “${report.playlistName}”.")
@@ -750,7 +751,11 @@ fun LibraryScreen(
 
     if (showAddSheet) {
         ModalBottomSheet(onDismissRequest = { showAddSheet = false }) {
-            Text(if (pendingTracks.size == 1) "Add ${pendingTracks.first().title}" else "Add ${pendingTracks.size} songs", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 22.dp))
+            ShrikhandHeading(
+                if (pendingTracks.size == 1) "Add ${pendingTracks.first().title}" else "Add ${pendingTracks.size} songs",
+                MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 22.dp),
+            )
             TextButton(onClick = { onPlayNext(pendingTracks); showAddSheet = false; pendingTracks = emptyList(); selectedUris = emptySet() }, modifier = Modifier.fillMaxWidth()) { Text("Play next") }
             TextButton(onClick = { pendingTracks.forEach(onAddToQueue); showAddSheet = false; pendingTracks = emptyList(); selectedUris = emptySet() }, modifier = Modifier.fillMaxWidth()) { Text("Add to queue") }
             TextButton(onClick = { tracksToAddOnCreate = pendingTracks; playlistNameInput = ""; showAddSheet = false; showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
@@ -767,7 +772,7 @@ fun LibraryScreen(
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false; tracksToAddOnCreate = emptyList() },
-            title = { Text("Create playlist") },
+            title = { ShrikhandHeading("Create playlist", MaterialTheme.typography.headlineSmall) },
             text = { OutlinedTextField(value = playlistNameInput, onValueChange = { playlistNameInput = it }, singleLine = true, label = { Text("Playlist name") }) },
             confirmButton = {
                 TextButton(enabled = playlistNameInput.isNotBlank(), onClick = {
@@ -783,7 +788,7 @@ fun LibraryScreen(
     playlistToRename?.let { playlist ->
         AlertDialog(
             onDismissRequest = { playlistToRename = null },
-            title = { Text("Rename playlist") },
+            title = { ShrikhandHeading("Rename playlist", MaterialTheme.typography.headlineSmall) },
             text = { OutlinedTextField(value = playlistNameInput, onValueChange = { playlistNameInput = it }, singleLine = true, label = { Text("Playlist name") }) },
             confirmButton = { TextButton(enabled = playlistNameInput.isNotBlank(), onClick = { onRenamePlaylist(playlist, playlistNameInput.trim()); playlistToRename = null }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { playlistToRename = null }) { Text("Cancel") } },
@@ -792,7 +797,7 @@ fun LibraryScreen(
     playlistToDelete?.let { playlist ->
         AlertDialog(
             onDismissRequest = { playlistToDelete = null },
-            title = { Text("Delete playlist?") },
+            title = { ShrikhandHeading("Delete playlist?", MaterialTheme.typography.headlineSmall) },
             text = { Text("Delete ${playlist.name}? Songs on your device will not be deleted.") },
             confirmButton = { TextButton(onClick = { onDeletePlaylist(playlist); playlistToDelete = null }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text("Cancel") } },
@@ -1149,7 +1154,7 @@ private fun TrackRow(
         val format = track.mimeType.substringAfter('/', "").takeIf { it.isNotBlank() }?.uppercase() ?: track.displayName.substringAfterLast('.', "").uppercase().ifBlank { "Unknown" }
         AlertDialog(
             onDismissRequest = { showDetails = false },
-            title = { Text("Song details") },
+            title = { ShrikhandHeading("Song details", MaterialTheme.typography.headlineSmall) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(track.title, fontWeight = FontWeight.SemiBold)
