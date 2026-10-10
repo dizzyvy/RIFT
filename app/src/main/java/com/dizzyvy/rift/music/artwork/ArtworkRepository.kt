@@ -9,6 +9,7 @@ import android.util.LruCache
 import android.util.Log
 import com.dizzyvy.rift.music.library.CachedArtwork
 import com.dizzyvy.rift.music.library.PlaylistStore
+import com.dizzyvy.rift.music.model.AudioTrack
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
@@ -17,7 +18,11 @@ import kotlinx.coroutines.withContext
 data class Artwork(val bitmap: Bitmap, val encodedBytes: ByteArray)
 
 interface ArtworkRepository {
-    suspend fun load(uri: Uri, maxDimensionPx: Int = 512): Artwork?
+    suspend fun load(
+        uri: Uri,
+        maxDimensionPx: Int = 512,
+        sourceDateModifiedSeconds: Long? = null,
+    ): Artwork?
 }
 
 class EmbeddedArtworkRepository(
@@ -34,50 +39,85 @@ class EmbeddedArtworkRepository(
         }
     }
     private val uriAliases = object : LruCache<String, String>(URI_ALIAS_CACHE_SIZE) {}
+    private val uriAliasDateModified = object : LruCache<String, Long>(URI_ALIAS_CACHE_SIZE) {}
     private val albumKeys = object : LruCache<String, String>(URI_ALIAS_CACHE_SIZE) {}
 
-    override suspend fun load(uri: Uri, maxDimensionPx: Int): Artwork? = withContext(Dispatchers.IO) {
+    override suspend fun load(
+        uri: Uri,
+        maxDimensionPx: Int,
+        sourceDateModifiedSeconds: Long?,
+    ): Artwork? = withContext(Dispatchers.IO) {
         val sizePx = sizeBucket(maxDimensionPx)
         val trackKey = trackKey(uri)
         val uriCacheKey = memoryKey(trackKey, sizePx)
+        var sourceModifiedSeconds = sourceDateModifiedSeconds
+        var cachedTrack: AudioTrack? = null
         uriAliases.get(uriCacheKey)?.let { cachedKey ->
-            cache.get(cachedKey)?.artwork?.let { return@withContext it }
+            val cachedModifiedSeconds = uriAliasDateModified.get(uriCacheKey)
+            if (sourceModifiedSeconds == null || cachedModifiedSeconds == sourceModifiedSeconds) {
+                cache.get(cachedKey)?.artwork?.let { return@withContext it }
+            } else {
+                albumKeys.remove(uri.toString())
+            }
             uriAliases.remove(uriCacheKey)
+            uriAliasDateModified.remove(uriCacheKey)
         }
-        val artworkKey = albumKeys.get(uri.toString()) ?: albumKey(uri, trackKey).also {
-            albumKeys.put(uri.toString(), it)
+        val missingKey = memoryKey(trackKey, MISSING_ARTWORK_SIZE_PX)
+        cache.get(missingKey)?.let { missing ->
+            if (sourceModifiedSeconds == null) {
+                cachedTrack = playlistStore?.loadCachedTrack(uri)
+                sourceModifiedSeconds = cachedTrack?.dateModifiedSeconds ?: 0L
+            }
+            if (missing.dateModifiedSeconds == sourceModifiedSeconds) return@withContext null
+            cache.remove(missingKey)
         }
+        if (cachedTrack == null && (sourceModifiedSeconds == null || albumKeys.get(uri.toString()) == null)) {
+            cachedTrack = playlistStore?.loadCachedTrack(uri)
+        }
+        if (sourceModifiedSeconds == null) sourceModifiedSeconds = cachedTrack?.dateModifiedSeconds ?: 0L
+        val artworkKey = albumKeys.get(uri.toString()) ?: cachedTrack?.let(::albumKey)
+            ?: trackKey.also { albumKeys.put(uri.toString(), it) }
+        if (albumKeys.get(uri.toString()) == null) albumKeys.put(uri.toString(), artworkKey)
         memoryArtwork(artworkKey, sizePx)?.let {
-            uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
+            rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
             return@withContext it
         }
-        if (isKnownMissing(trackKey)) return@withContext null
+        val missingDateModified = playlistStore?.loadMissingArtworkDateModified(uri)
+        if (missingDateModified != null) {
+            if (missingDateModified == sourceModifiedSeconds) {
+                rememberMissing(trackKey, missingDateModified)
+                return@withContext null
+            }
+            playlistStore.clearMissingArtwork(uri)
+        }
         val cached = findCachedArtwork(artworkKey, trackKey, sizePx)
         if (cached != null) {
             if (cached.entry.missing) {
-                rememberMissing(trackKey)
-                return@withContext null
-            }
-            val artwork = cached.entry.thumbnail?.let { decodeArtwork(it, sizePx) }
-            if (artwork != null) {
-                cache.put(memoryKey(artworkKey, sizePx), CachedArtworkValue(artwork))
-                uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
-                if (cached.key != artworkKey || cached.sizePx != sizePx) {
-                    playlistStore?.cacheArtwork(artworkKey, uri, sizePx, artwork.encodedBytes)
+                if (cached.entry.dateModifiedSeconds == sourceModifiedSeconds) {
+                    rememberMissing(trackKey, cached.entry.dateModifiedSeconds)
+                    return@withContext null
                 }
-                return@withContext artwork
+            } else if (cached.entry.dateModifiedSeconds == sourceModifiedSeconds) {
+                val artwork = cached.entry.thumbnail?.let { decodeArtwork(it, sizePx) }
+                if (artwork != null) {
+                    cache.put(memoryKey(artworkKey, sizePx), CachedArtworkValue(artwork, sourceModifiedSeconds ?: 0L))
+                    rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
+                    if (cached.key != artworkKey || cached.sizePx != sizePx) {
+                        playlistStore?.cacheArtwork(artworkKey, uri, sizePx, artwork.encodedBytes, sourceModifiedSeconds ?: 0L)
+                    }
+                    return@withContext artwork
+                }
+                Log.w(TAG, "Ignoring invalid cached artwork for $uri")
             }
-            Log.w(TAG, "Ignoring invalid cached artwork for $uri")
         }
         decodeSemaphore.acquire()
         try {
             memoryArtwork(artworkKey, sizePx)?.let {
-                uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
+                rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
                 return@withContext it
             }
-            if (isKnownMissing(trackKey)) return@withContext null
-            extractArtwork(uri, trackKey, artworkKey, sizePx)?.also {
-                uriAliases.put(uriCacheKey, memoryKey(artworkKey, sizePx))
+            extractArtwork(uri, trackKey, artworkKey, sizePx, sourceModifiedSeconds ?: 0L)?.also {
+                rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
             }
         } finally {
             decodeSemaphore.release()
@@ -99,7 +139,13 @@ class EmbeddedArtworkRepository(
             ?.let { CachedArtworkLookup(it, trackKey, MISSING_ARTWORK_SIZE_PX) }
     }
 
-    private suspend fun extractArtwork(uri: Uri, trackKey: String, artworkKey: String, sizePx: Int): Artwork? {
+    private suspend fun extractArtwork(
+        uri: Uri,
+        trackKey: String,
+        artworkKey: String,
+        sizePx: Int,
+        sourceDateModifiedSeconds: Long,
+    ): Artwork? {
         val retriever = MediaMetadataRetriever()
         val embeddedPicture = try {
             resolver.openFileDescriptor(uri, "r")?.use { descriptor ->
@@ -119,12 +165,13 @@ class EmbeddedArtworkRepository(
 
         val artwork = embeddedPicture?.let { decodeArtwork(it, sizePx) }
         if (artwork == null) {
-            playlistStore?.cacheArtwork(trackKey, uri, MISSING_ARTWORK_SIZE_PX, null)
-            rememberMissing(trackKey)
+            playlistStore?.cacheMissingArtwork(uri, sourceDateModifiedSeconds)
+            rememberMissing(trackKey, sourceDateModifiedSeconds)
             return null
         }
-        playlistStore?.cacheArtwork(artworkKey, uri, sizePx, artwork.encodedBytes)
-        cache.put(memoryKey(artworkKey, sizePx), CachedArtworkValue(artwork))
+        playlistStore?.clearMissingArtwork(uri)
+        playlistStore?.cacheArtwork(artworkKey, uri, sizePx, artwork.encodedBytes, sourceDateModifiedSeconds)
+        cache.put(memoryKey(artworkKey, sizePx), CachedArtworkValue(artwork, sourceDateModifiedSeconds))
         return artwork
     }
 
@@ -155,10 +202,8 @@ class EmbeddedArtworkRepository(
         return sample
     }
 
-    private suspend fun albumKey(uri: Uri, trackKey: String): String {
-        val track = playlistStore?.loadCachedTrack(uri) ?: return trackKey
-        return track.albumId.takeIf { it >= 0L }?.let { "album:${track.volumeName}:$it" } ?: trackKey
-    }
+    private fun albumKey(track: AudioTrack): String =
+        track.albumId.takeIf { it >= 0L }?.let { "album:${track.volumeName}:$it" } ?: trackKey(track.uri)
 
     private fun trackKey(uri: Uri): String = "track:$uri"
 
@@ -167,16 +212,21 @@ class EmbeddedArtworkRepository(
         return value.artwork
     }
 
-    private fun isKnownMissing(trackKey: String): Boolean =
-        cache.get(memoryKey(trackKey, MISSING_ARTWORK_SIZE_PX)) != null
+    private fun rememberAlias(uriCacheKey: String, artworkCacheKey: String, dateModifiedSeconds: Long) {
+        uriAliases.put(uriCacheKey, artworkCacheKey)
+        uriAliasDateModified.put(uriCacheKey, dateModifiedSeconds)
+    }
 
-    private fun rememberMissing(trackKey: String) {
-        cache.put(memoryKey(trackKey, MISSING_ARTWORK_SIZE_PX), CachedArtworkValue(null))
+    private fun rememberMissing(trackKey: String, dateModifiedSeconds: Long) {
+        cache.put(
+            memoryKey(trackKey, MISSING_ARTWORK_SIZE_PX),
+            CachedArtworkValue(null, dateModifiedSeconds),
+        )
     }
 
     private fun memoryKey(key: String, sizePx: Int): String = "$key@$sizePx"
 
-    private data class CachedArtworkValue(val artwork: Artwork?)
+    private data class CachedArtworkValue(val artwork: Artwork?, val dateModifiedSeconds: Long)
     private data class CachedArtworkLookup(val entry: CachedArtwork, val key: String, val sizePx: Int)
 
     private fun sizeBucket(requestedPx: Int): Int = when {

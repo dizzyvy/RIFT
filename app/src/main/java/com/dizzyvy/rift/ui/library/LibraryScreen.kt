@@ -1253,7 +1253,13 @@ fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository,
 
 @Composable
 fun AlbumTile(track: AudioTrack, artworkRepository: ArtworkRepository, modifier: Modifier = Modifier) {
-    AlbumArtwork(track.uri, track.title, artworkRepository, modifier)
+    AlbumArtwork(
+        track.uri,
+        track.title,
+        artworkRepository,
+        modifier,
+        sourceDateModifiedSeconds = track.dateModifiedSeconds,
+    )
 }
 
 @Composable

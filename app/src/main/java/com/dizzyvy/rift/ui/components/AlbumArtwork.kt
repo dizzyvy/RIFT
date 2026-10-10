@@ -35,14 +35,23 @@ fun AlbumArtwork(
     modifier: Modifier = Modifier,
     fallbackInitial: Boolean = false,
     contentScale: ContentScale = ContentScale.Crop,
+    sourceDateModifiedSeconds: Long? = null,
 ) {
     BoxWithConstraints(modifier.clip(if (fallbackInitial) CircleShape else RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
         val maxDimensionPx = with(LocalDensity.current) {
             maxOf(maxWidth, maxHeight).coerceAtMost(512.dp).roundToPx().coerceAtLeast(1)
         }
-        val artwork = produceState<android.graphics.Bitmap?>(null, uri, repository, maxDimensionPx) {
+        val artwork = produceState<android.graphics.Bitmap?>(
+            null,
+            uri,
+            repository,
+            maxDimensionPx,
+            sourceDateModifiedSeconds,
+        ) {
             value = if (uri != null && repository != null) {
-                withContext(Dispatchers.IO) { repository.load(uri, maxDimensionPx)?.bitmap }
+                withContext(Dispatchers.IO) {
+                    repository.load(uri, maxDimensionPx, sourceDateModifiedSeconds)?.bitmap
+                }
             } else null
         }.value
         if (artwork != null) {

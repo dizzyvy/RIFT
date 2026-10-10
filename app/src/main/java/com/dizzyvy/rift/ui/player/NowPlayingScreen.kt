@@ -167,7 +167,7 @@ fun NowPlayingScreen(
                 onDragEnd = { if (drag > 48f) onNext() else if (drag < -48f) onPrevious(); drag = 0f },
                 onHorizontalDrag = { change, amount -> change.consume(); drag += amount },
             )
-        }, contentScale = ContentScale.Fit)
+        }, contentScale = ContentScale.Fit, sourceDateModifiedSeconds = track.dateModifiedSeconds)
         ShrikhandHeading(
             track.title,
             MaterialTheme.typography.titleLarge,

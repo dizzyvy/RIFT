@@ -15,7 +15,11 @@ data class TrackPlayHistory(val playCount: Int, val lastPlayedAtMs: Long)
 data class BackupTrackRef(val uri: String, val title: String, val artist: String, val album: String, val durationMs: Long)
 data class BackupPlaylist(val name: String, val tracks: List<BackupTrackRef>)
 data class LibraryBackupSnapshot(val playlists: List<BackupPlaylist>, val favorites: List<BackupTrackRef>, val settings: Map<String, String>)
-data class CachedArtwork(val missing: Boolean, val thumbnail: ByteArray?)
+data class CachedArtwork(
+    val missing: Boolean,
+    val thumbnail: ByteArray?,
+    val dateModifiedSeconds: Long = 0L,
+)
 
 interface PlaylistStore {
     suspend fun loadPlaylists(): List<DevicePlaylist>
@@ -43,7 +47,16 @@ interface PlaylistStore {
     suspend fun cacheTracks(generation: String, tracks: List<AudioTrack>)
     suspend fun finishTrackCacheRefresh(generation: String)
     suspend fun loadCachedArtwork(key: String, sizePx: Int): CachedArtwork? = null
-    suspend fun cacheArtwork(key: String, sourceUri: Uri, sizePx: Int, thumbnail: ByteArray?) = Unit
+    suspend fun cacheArtwork(
+        key: String,
+        sourceUri: Uri,
+        sizePx: Int,
+        thumbnail: ByteArray?,
+        dateModifiedSeconds: Long = 0L,
+    ) = Unit
+    suspend fun loadMissingArtworkDateModified(uri: Uri): Long? = null
+    suspend fun cacheMissingArtwork(uri: Uri, dateModifiedSeconds: Long) = Unit
+    suspend fun clearMissingArtwork(uri: Uri) = Unit
     suspend fun loadSettings(): Map<String, String>
     suspend fun saveSettings(settings: Map<String, String>)
     suspend fun createBackupSnapshot(tracks: List<AudioTrack>): LibraryBackupSnapshot
@@ -62,6 +75,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         db.execSQL("CREATE INDEX track_cache_generation ON track_cache(generation)")
         db.execSQL("CREATE TABLE track_scan_seen (generation TEXT NOT NULL, uri TEXT NOT NULL, PRIMARY KEY (generation, uri))")
         createArtworkCache(db)
+        createMissingArtworkCache(db)
         db.execSQL("CREATE TABLE app_settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
         db.execSQL("CREATE TABLE artist_aliases (alias_key TEXT PRIMARY KEY NOT NULL, alias_name TEXT NOT NULL, canonical_name TEXT NOT NULL)")
         db.execSQL("CREATE TABLE not_duplicate_pairs (pair_key TEXT PRIMARY KEY NOT NULL, first_uri TEXT NOT NULL, second_uri TEXT NOT NULL)")
@@ -96,20 +110,29 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
             createArtworkCache(db)
             db.execSQL(
                 """
-                INSERT INTO track_artwork (artwork_key, source_uri, size_px, missing, thumbnail)
-                SELECT 'track:' || track_uri, track_uri, 512, 0, thumbnail
+                INSERT INTO track_artwork (artwork_key, source_uri, size_px, missing, thumbnail, date_modified_seconds)
+                SELECT 'track:' || track_uri, track_uri, 512, 0, thumbnail, 0
                 FROM track_artwork_legacy
                 """.trimIndent(),
             )
             db.execSQL("DROP TABLE track_artwork_legacy")
+        } else if (oldVersion < 11) {
+            db.execSQL("ALTER TABLE track_artwork ADD COLUMN date_modified_seconds INTEGER NOT NULL DEFAULT 0")
+        }
+        if (oldVersion < 11) {
+            createMissingArtworkCache(db)
         }
     }
 
     private fun createArtworkCache(db: SQLiteDatabase) {
         db.execSQL(
-            "CREATE TABLE track_artwork (artwork_key TEXT NOT NULL, source_uri TEXT NOT NULL, size_px INTEGER NOT NULL, missing INTEGER NOT NULL, thumbnail BLOB, PRIMARY KEY (artwork_key, size_px), CHECK ((missing = 1 AND thumbnail IS NULL) OR (missing = 0 AND thumbnail IS NOT NULL)))",
+            "CREATE TABLE track_artwork (artwork_key TEXT NOT NULL, source_uri TEXT NOT NULL, size_px INTEGER NOT NULL, missing INTEGER NOT NULL, thumbnail BLOB, date_modified_seconds INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (artwork_key, size_px), CHECK ((missing = 1 AND thumbnail IS NULL) OR (missing = 0 AND thumbnail IS NOT NULL)))",
         )
         db.execSQL("CREATE INDEX track_artwork_source ON track_artwork(source_uri)")
+    }
+
+    private fun createMissingArtworkCache(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE track_artwork_missing (track_uri TEXT PRIMARY KEY NOT NULL, date_modified_seconds INTEGER NOT NULL)")
     }
 
     private fun migrateHiddenFoldersSetting(db: SQLiteDatabase) {
@@ -291,6 +314,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
                     val cleanedTrack = cleanTrackMetadata(track)
                     if (!unchanged) {
                         db.delete("track_artwork", "source_uri = ?", arrayOf(uri))
+                        db.delete("track_artwork_missing", "track_uri = ?", arrayOf(uri))
                         db.insertWithOnConflict("track_cache", null, ContentValues().apply {
                             put("uri", uri)
                             put("generation", generation)
@@ -324,6 +348,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
                 arrayOf(generation),
             )
             db.delete("track_artwork", "source_uri NOT IN (SELECT uri FROM track_cache)", null)
+            db.delete("track_artwork_missing", "track_uri NOT IN (SELECT uri FROM track_cache)", null)
             db.delete("track_scan_seen", "generation = ?", arrayOf(generation))
             db.setTransactionSuccessful()
         } finally {
@@ -335,18 +360,26 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     override suspend fun loadCachedArtwork(key: String, sizePx: Int): CachedArtwork? = withContext(Dispatchers.IO) {
         readableDatabase.query(
             "track_artwork",
-            arrayOf("missing", "thumbnail"),
+            arrayOf("missing", "thumbnail", "date_modified_seconds"),
             "artwork_key = ? AND size_px = ?",
             arrayOf(key, sizePx.toString()),
             null,
             null,
             null,
         ).use { cursor ->
-            if (cursor.moveToFirst()) CachedArtwork(cursor.getInt(0) != 0, cursor.getBlob(1)) else null
+            if (cursor.moveToFirst()) {
+                CachedArtwork(cursor.getInt(0) != 0, cursor.getBlob(1), cursor.getLong(2))
+            } else null
         }
     }
 
-    override suspend fun cacheArtwork(key: String, sourceUri: Uri, sizePx: Int, thumbnail: ByteArray?) = withContext(Dispatchers.IO) {
+    override suspend fun cacheArtwork(
+        key: String,
+        sourceUri: Uri,
+        sizePx: Int,
+        thumbnail: ByteArray?,
+        dateModifiedSeconds: Long,
+    ) = withContext(Dispatchers.IO) {
         writableDatabase.insertWithOnConflict(
             "track_artwork",
             null,
@@ -355,10 +388,41 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
                 put("source_uri", sourceUri.toString())
                 put("size_px", sizePx)
                 put("missing", if (thumbnail == null) 1 else 0)
+                put("date_modified_seconds", dateModifiedSeconds)
                 if (thumbnail == null) putNull("thumbnail") else put("thumbnail", thumbnail)
             },
             SQLiteDatabase.CONFLICT_REPLACE,
         )
+        Unit
+    }
+
+    override suspend fun loadMissingArtworkDateModified(uri: Uri): Long? = withContext(Dispatchers.IO) {
+        readableDatabase.query(
+            "track_artwork_missing",
+            arrayOf("date_modified_seconds"),
+            "track_uri = ?",
+            arrayOf(uri.toString()),
+            null,
+            null,
+            null,
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+    }
+
+    override suspend fun cacheMissingArtwork(uri: Uri, dateModifiedSeconds: Long) = withContext(Dispatchers.IO) {
+        writableDatabase.insertWithOnConflict(
+            "track_artwork_missing",
+            null,
+            ContentValues().apply {
+                put("track_uri", uri.toString())
+                put("date_modified_seconds", dateModifiedSeconds)
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+        Unit
+    }
+
+    override suspend fun clearMissingArtwork(uri: Uri) = withContext(Dispatchers.IO) {
+        writableDatabase.delete("track_artwork_missing", "track_uri = ?", arrayOf(uri.toString()))
         Unit
     }
 
@@ -676,7 +740,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     private companion object {
         val LEGACY_APPEARANCE_SETTINGS = setOf("accentName", "textColor", "text_color")
         const val DATABASE_NAME = "sj_music_library.db"
-        const val DATABASE_VERSION = 10
+        const val DATABASE_VERSION = 11
         const val CACHE_BATCH_SIZE = 200
         const val SETTING_HIDDEN_FOLDERS = "hiddenFolders"
         const val SETTING_LYRICS_TREE = "lyricsTreeUri"
