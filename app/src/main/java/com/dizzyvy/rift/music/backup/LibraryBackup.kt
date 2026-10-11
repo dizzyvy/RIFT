@@ -113,11 +113,16 @@ object LibraryBackupCodec {
             }
         }
         val legacyAppearanceKeys = setOf("accentName", "textColor", "text_color")
+        // Reject unknown keys rather than silently dropping preferences from incompatible backups.
+        require(importedSettings.keys.all {
+            it in SETTING_KEYS || (formatVersion == 1 && it in legacyAppearanceKeys)
+        }) { "Backup contains unknown settings." }
         val settings = importedSettings
-            .filterKeys { it in SETTING_KEYS || (formatVersion == 1 && it in legacyAppearanceKeys) }
             .filterKeys { it !in legacyAppearanceKeys }
             .toMutableMap()
-        if (formatVersion == 1) settings["themeMode"] = settings["themeMode"] ?: "system"
+        if (formatVersion == 1 && importedSettings.keys.any { it in legacyAppearanceKeys }) {
+            settings["themeMode"] = "system"
+        }
         settings["themeMode"]?.let {
             require(it in setOf("system", "light", "dark")) { "Backup contains an invalid theme." }
         }
@@ -136,11 +141,16 @@ object LibraryBackupCodec {
             val normalized = folders.trim()
             val paths = when {
                 normalized.isEmpty() -> JSONArray()
-                normalized.trimStart().startsWith("[") -> runCatching { JSONArray(normalized) }.getOrElse { JSONArray().apply { put(normalized) } }
-                else -> JSONArray().apply { put(normalized) }
+                normalized.startsWith("[") -> JSONArray(normalized)
+                else -> JSONArray().put(normalized)
             }
             require(paths.length() <= 10_000) { "Backup contains too many hidden folders." }
-            for (index in 0 until paths.length()) require(paths.optString(index).isNotBlank()) { "Backup contains an empty hidden-folder path." }
+            for (index in 0 until paths.length()) {
+                val path = paths.get(index)
+                require(path is String && path.isNotBlank()) {
+                    "Backup contains an invalid hidden-folder path."
+                }
+            }
         }
         return LibraryBackupSnapshot(
             playlists = playlists,

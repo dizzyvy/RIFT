@@ -5,10 +5,17 @@ import com.dizzyvy.rift.music.library.BackupHistoryEntry
 import com.dizzyvy.rift.music.library.BackupPlaylist
 import com.dizzyvy.rift.music.library.BackupTrackRef
 import com.dizzyvy.rift.music.library.LibraryBackupSnapshot
+import org.json.JSONException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class LibraryBackupCodecTest {
     @Test
     fun decodesVersionOneBackupsAndMigratesAppearanceToSystem() {
@@ -34,6 +41,22 @@ class LibraryBackupCodecTest {
     }
 
     @Test
+    fun versionOneWithoutLegacyAppearancePreservesExplicitTheme() {
+        val snapshot = LibraryBackupCodec.decode(
+            """
+            {
+              "formatVersion": 1,
+              "playlists": [],
+              "favorites": [],
+              "settings": {"themeMode": "dark"}
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("dark", snapshot.settings["themeMode"])
+    }
+
+    @Test
     fun decodesVersionTwoBackupsWithEmptyVersionThreeFields() {
         val snapshot = LibraryBackupCodec.decode(
             """
@@ -51,6 +74,93 @@ class LibraryBackupCodecTest {
         assertTrue(snapshot.playHistory.isEmpty())
         assertTrue(snapshot.artistAliases.isEmpty())
         assertTrue(snapshot.notDuplicatePairs.isEmpty())
+    }
+
+    @Test
+    fun decodesVersionTwoHiddenFoldersStoredAsJsonArray() {
+        val snapshot = LibraryBackupCodec.decode(
+            """
+            {
+              "formatVersion": 2,
+              "playlists": [],
+              "favorites": [],
+              "settings": {"hiddenFolders": ["Music/Hidden"]}
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("""["Music/Hidden"]""", snapshot.settings["hiddenFolders"])
+    }
+
+    @Test
+    fun decodesLegacyHiddenFolderPath() {
+        val snapshot = LibraryBackupCodec.decode(
+            """
+            {
+              "formatVersion": 2,
+              "playlists": [],
+              "favorites": [],
+              "settings": {"hiddenFolders": "Music/Hidden"}
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("Music/Hidden", org.json.JSONArray(snapshot.settings["hiddenFolders"]).getString(0))
+    }
+
+    @Test
+    fun rejectsMalformedCurrentVersionHiddenFoldersAndUnknownSettings() {
+        val malformedHiddenFolders = """
+            {
+              "formatVersion": 3,
+              "playlists": [],
+              "favorites": [],
+              "settings": {"hiddenFolders": "[invalid"}
+            }
+        """.trimIndent()
+        val unknownSetting = """
+            {
+              "formatVersion": 3,
+              "playlists": [],
+              "favorites": [],
+              "settings": {"unrecognizedSetting": "value"}
+            }
+        """.trimIndent()
+
+        assertThrows(JSONException::class.java) {
+            LibraryBackupCodec.decode(malformedHiddenFolders)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            LibraryBackupCodec.decode(unknownSetting)
+        }
+    }
+
+    @Test
+    fun rejectsNonStringAndBlankHiddenFolderArrayElements() {
+        val invalidElements = listOf(
+            "42",
+            "null",
+            "true",
+            """{"path":"Music"}""",
+            """["Music/Nested"]""",
+            "\"   \"",
+        )
+
+        invalidElements.forEach { element ->
+            val contents = """
+                {
+                  "formatVersion": 3,
+                  "playlists": [],
+                  "favorites": [],
+                  "settings": {"hiddenFolders": "[$element]"}
+                }
+            """.trimIndent()
+
+            val exception = assertThrows(IllegalArgumentException::class.java) {
+                LibraryBackupCodec.decode(contents)
+            }
+            assertEquals("Backup contains an invalid hidden-folder path.", exception.message)
+        }
     }
 
     @Test
@@ -106,7 +216,11 @@ class LibraryBackupCodecTest {
             }
         """.trimIndent()
 
-        assertTrue(runCatching { LibraryBackupCodec.decode(malformedHistory) }.isFailure)
-        assertTrue(runCatching { LibraryBackupCodec.decode(malformedPair) }.isFailure)
+        assertThrows(IllegalArgumentException::class.java) {
+            LibraryBackupCodec.decode(malformedHistory)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            LibraryBackupCodec.decode(malformedPair)
+        }
     }
 }

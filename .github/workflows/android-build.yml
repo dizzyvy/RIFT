@@ -1,20 +1,14 @@
 name: Android build
 
 on:
-  pull_request:
-  push:
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: android-build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   assemble-debug:
-    name: Assemble debug APK
+    name: Test and build debug APK
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -35,13 +29,23 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Run unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: RIFT-debug-apk
+          name: app-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
