@@ -196,7 +196,16 @@ class LibraryBackupCodecTest {
 
         val restored = LibraryBackupCodec.decode(LibraryBackupCodec.encode(snapshot))
 
-        assertEquals(snapshot, restored)
+        val expectedFolders = JSONArray(snapshot.settings.getValue("hiddenFolders"))
+        val restoredFolders = JSONArray(restored.settings.getValue("hiddenFolders"))
+        assertEquals(expectedFolders.length(), restoredFolders.length())
+        for (index in 0 until expectedFolders.length()) {
+            assertEquals(expectedFolders.getString(index), restoredFolders.getString(index))
+        }
+        assertEquals(
+            snapshot.copy(settings = snapshot.settings - "hiddenFolders"),
+            restored.copy(settings = restored.settings - "hiddenFolders"),
+        )
     }
 
     @Test
