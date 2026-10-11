@@ -5,7 +5,9 @@ import com.dizzyvy.rift.music.library.BackupHistoryEntry
 import com.dizzyvy.rift.music.library.BackupPlaylist
 import com.dizzyvy.rift.music.library.BackupTrackRef
 import com.dizzyvy.rift.music.library.LibraryBackupSnapshot
+import org.json.JSONArray
 import org.json.JSONException
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
@@ -89,7 +91,9 @@ class LibraryBackupCodecTest {
             """.trimIndent(),
         )
 
-        assertEquals("""["Music/Hidden"]""", snapshot.settings["hiddenFolders"])
+        val folders = JSONArray(snapshot.settings["hiddenFolders"])
+        assertEquals(1, folders.length())
+        assertEquals("Music/Hidden", folders.getString(0))
     }
 
     @Test
@@ -105,7 +109,9 @@ class LibraryBackupCodecTest {
             """.trimIndent(),
         )
 
-        assertEquals("Music/Hidden", org.json.JSONArray(snapshot.settings["hiddenFolders"]).getString(0))
+        val folders = JSONArray(snapshot.settings["hiddenFolders"])
+        assertEquals(1, folders.length())
+        assertEquals("Music/Hidden", folders.getString(0))
     }
 
     @Test
@@ -137,29 +143,34 @@ class LibraryBackupCodecTest {
 
     @Test
     fun rejectsNonStringAndBlankHiddenFolderArrayElements() {
-        val invalidElements = listOf(
-            "42",
-            "null",
-            "true",
-            """{"path":"Music"}""",
-            """["Music/Nested"]""",
-            "\"   \"",
+        val invalidElements: List<Pair<String, Any?>> = listOf(
+            "number" to 42,
+            "JSON null" to JSONObject.NULL,
+            "boolean" to true,
+            "object" to JSONObject().put("path", "Music"),
+            "nested array" to JSONArray().put("Music/Nested"),
+            "empty string" to "",
+            "whitespace-only string" to "   ",
         )
 
-        invalidElements.forEach { element ->
-            val contents = """
-                {
-                  "formatVersion": 3,
-                  "playlists": [],
-                  "favorites": [],
-                  "settings": {"hiddenFolders": "[$element]"}
-                }
-            """.trimIndent()
+        invalidElements.forEach { (description, element) ->
+            val folders = JSONArray().put(element).toString()
+            val settings = JSONObject().put("hiddenFolders", folders)
+            val contents = JSONObject()
+                .put("formatVersion", 3)
+                .put("playlists", JSONArray())
+                .put("favorites", JSONArray())
+                .put("settings", settings)
+                .toString()
 
             val exception = assertThrows(IllegalArgumentException::class.java) {
                 LibraryBackupCodec.decode(contents)
             }
-            assertEquals("Backup contains an invalid hidden-folder path.", exception.message)
+            assertEquals(
+                description,
+                "Backup contains an invalid hidden-folder path.",
+                exception.message,
+            )
         }
     }
 

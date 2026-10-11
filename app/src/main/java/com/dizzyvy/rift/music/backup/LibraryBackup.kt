@@ -151,6 +151,7 @@ object LibraryBackupCodec {
                     "Backup contains an invalid hidden-folder path."
                 }
             }
+            settings["hiddenFolders"] = paths.toString()
         }
         return LibraryBackupSnapshot(
             playlists = playlists,
