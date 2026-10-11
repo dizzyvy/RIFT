@@ -20,6 +20,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
@@ -36,8 +39,9 @@ fun AlbumArtwork(
     fallbackInitial: Boolean = false,
     contentScale: ContentScale = ContentScale.Crop,
     sourceDateModifiedSeconds: Long? = null,
+    cornerRadius: androidx.compose.ui.unit.Dp = 12.dp,
 ) {
-    BoxWithConstraints(modifier.clip(if (fallbackInitial) CircleShape else RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier.clip(if (fallbackInitial) CircleShape else RoundedCornerShape(cornerRadius)), contentAlignment = Alignment.Center) {
         val maxDimensionPx = with(LocalDensity.current) {
             maxOf(maxWidth, maxHeight).coerceAtMost(512.dp).roundToPx().coerceAtLeast(1)
         }
@@ -60,7 +64,11 @@ fun AlbumArtwork(
             val colors = listOf(Color(0xFFE95865), Color(0xFF438CCD), Color(0xFFFFC833), Color(0xFF50A982), Color(0xFF9B75BC))
             val color = colors[(title.hashCode().toUInt().toLong() % colors.size).toInt()]
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(color, color.copy(alpha = .65f)))), contentAlignment = Alignment.Center) {
-                Text(if (fallbackInitial) title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?" else "♫", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                if (fallbackInitial) {
+                    Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                } else {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.fillMaxSize(0.45f), tint = MaterialTheme.colorScheme.onPrimary)
+                }
             }
         }
     }

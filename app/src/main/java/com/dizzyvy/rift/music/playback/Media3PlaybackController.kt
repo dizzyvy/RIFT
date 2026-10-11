@@ -2,6 +2,7 @@ package com.dizzyvy.rift.music.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -28,6 +29,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+private const val MEDIA_METADATA_DURATION_MS = "com.dizzyvy.rift.duration_ms"
 
 class Media3PlaybackController(context: Context, private val artworkRepository: ArtworkRepository) : PlaybackController {
     private val appContext = context.applicationContext
@@ -299,6 +302,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             .setTitle(cleanedTrack.title)
             .setArtist(cleanedTrack.artist)
             .setAlbumTitle(cleanedTrack.album)
+            .setExtras(Bundle().apply { putLong(MEDIA_METADATA_DURATION_MS, cleanedTrack.durationMs) })
             .build()
 
         return MediaItem.Builder()
@@ -352,7 +356,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
                 ?: uri.lastPathSegment.orEmpty().ifBlank { "Untitled track" },
             artist = mediaMetadata.artist?.toString().orEmpty(),
             album = mediaMetadata.albumTitle?.toString().orEmpty(),
-            durationMs = 0L,
+            durationMs = mediaMetadata.extras?.getLong(MEDIA_METADATA_DURATION_MS, 0L) ?: 0L,
             metadataCleaned = true,
         )
     }

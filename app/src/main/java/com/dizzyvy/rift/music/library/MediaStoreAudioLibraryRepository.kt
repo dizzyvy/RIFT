@@ -123,6 +123,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.ARTIST_ID,
             MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.TRACK,
         ) + (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) arrayOf(MediaStore.Audio.Media.ALBUM_ARTIST, MediaStore.Audio.Media.BITRATE, MediaStore.Audio.Media.SAMPLERATE, MediaStore.Audio.Media.GENRE) else emptyArray()) + (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) arrayOf(MediaStore.Audio.Media.RELATIVE_PATH) else emptyArray())
 
         return try {
@@ -155,6 +156,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val genreColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.Audio.Media.GENRE) else -1
                 val artistIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST_ID)
                 val albumIdColumn = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
+                val trackColumn = cursor.getColumnIndex(MediaStore.Audio.Media.TRACK)
 
                 val tracks = buildList {
                     while (cursor.moveToNext()) {
@@ -188,6 +190,8 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                                 artistId = if (artistIdColumn >= 0) cursor.getLong(artistIdColumn) else -1L,
                                 albumId = if (albumIdColumn >= 0) cursor.getLong(albumIdColumn) else -1L,
                                 volumeName = collection.pathSegments.firstOrNull() ?: "external",
+                                trackNumber = if (trackColumn >= 0) cursor.getInt(trackColumn) % 1_000 else 0,
+                                discNumber = if (trackColumn >= 0) cursor.getInt(trackColumn) / 1_000 else 0,
                             ),
                         )
                         if (cursor.position % 32 == 0 || cursor.isLast) onProgress?.invoke(processedBefore + cursor.position + 1, totalBefore + count)

@@ -17,6 +17,8 @@ import com.dizzyvy.rift.music.library.normalizeArtistName
 import com.dizzyvy.rift.music.library.ArtistBrowseItem
 import com.dizzyvy.rift.music.library.DevicePlaylist
 import com.dizzyvy.rift.music.library.librarySection
+import com.dizzyvy.rift.music.library.isValidLibraryYear
+import com.dizzyvy.rift.music.library.sortableTitle
 import com.dizzyvy.rift.music.library.artistGroupKey
 import com.dizzyvy.rift.music.library.artistGroupKeys
 import com.dizzyvy.rift.music.library.artistNamesForTrack
@@ -65,32 +67,50 @@ private fun buildHiddenFolderItems(tracks: List<AudioTrack>, hiddenPaths: Set<St
 private fun buildArtists(tracks: List<AudioTrack>, aliases: Map<String, String> = emptyMap()): List<ArtistBrowseItem> = tracks
     .flatMap { track -> artistNamesForTrack(track, aliases).map { it to track } }
     .groupBy { (name, _) -> normalizeArtistName(name) }
-    .map { (id, entries) -> ArtistBrowseItem(id, entries.first().first, entries.size) }
+    .map { (id, entries) ->
+        val representativeTrack = entries.map { it.second }
+            .groupBy { albumGroupKey(it, aliases) }
+            .maxByOrNull { it.value.size }
+            ?.value
+            ?.firstOrNull()
+        ArtistBrowseItem(id, entries.first().first, entries.size, representativeTrack?.uri)
+    }
     .sortedWith(compareBy<ArtistBrowseItem> { if (librarySection(it.name) == '#') 0 else 1 }.thenBy { librarySection(it.name) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 
 private fun buildAlbums(tracks: List<AudioTrack>, aliases: Map<String, String> = emptyMap()): List<AlbumBrowseItem> = tracks.groupBy { albumGroupKey(it, aliases) }
     .map { (id, items) ->
         val first = items.first()
-        val title = first.album
+        val title = first.album.replace(Regex("""(?i)\s*[-–—]\s*(?:single|ep)$"""), "").trim()
         val artist = first.albumArtist.ifBlank { artistNamesForTrack(first, aliases).joinToString(", ") }
-        AlbumBrowseItem(id, title, artist, items.size, first.uri)
+        val year = items.map { it.year }.filter(::isValidLibraryYear).maxOrNull() ?: 0
+        AlbumBrowseItem(id, title, artist, items.size, first.uri, year)
     }
     .sortedWith(compareBy<AlbumBrowseItem> { if (librarySection(it.title) == '#') 0 else 1 }.thenBy { librarySection(it.title) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 
 private fun buildGenres(tracks: List<AudioTrack>): List<LibraryCollectionItem> = tracks
     .groupBy { genreGroupLabel(it.genre) }
-    .map { (genre, items) -> LibraryCollectionItem(genre.lowercase(), genre, "Genre", items.size, items.first().uri) }
+    .map { (genre, items) ->
+        LibraryCollectionItem(genre.lowercase(), genre, "Genre", items.size, preferredArtworkTrack(items).uri)
+    }
     .sortedWith(compareByDescending<LibraryCollectionItem> { it.trackCount }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 
 private fun buildYears(tracks: List<AudioTrack>): List<LibraryCollectionItem> {
     return tracks
         .groupBy { it.year.takeIf(::isValidLibraryYear)?.toString() ?: "Unknown" }
-        .map { (year, items) -> LibraryCollectionItem(year, year, "Year", items.size, items.first().uri) }
+        .map { (year, items) ->
+            val decade = year.toIntOrNull()?.let { "${it / 10 * 10}s" } ?: "Year"
+            LibraryCollectionItem(year, year, decade, items.size, preferredArtworkTrack(items).uri)
+        }
         .sortedWith(compareBy<LibraryCollectionItem> { it.title == "Unknown" }.thenByDescending { it.title.toIntOrNull() ?: 0 })
 }
 
-private fun isValidLibraryYear(year: Int): Boolean =
-    year in 1900..(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) + 1)
+private fun preferredArtworkTrack(tracks: List<AudioTrack>): AudioTrack =
+    requireNotNull(
+        tracks.maxWithOrNull(
+            compareBy<AudioTrack> { it.dateAddedSeconds }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.uri.toString() },
+        ),
+    )
 
 data class DuplicateGroup(val id: String, val tracks: List<AudioTrack>, val reason: String)
 
@@ -693,7 +713,7 @@ class LibraryViewModel(
         playback.setShuffleEnabled(true)
     }
 
-    fun playPlaylist(shuffle: Boolean) {
+    fun playBrowseTracks(shuffle: Boolean) {
         val tracks = _state.value.browseTracks.orEmpty()
         if (tracks.isEmpty()) return
         playback.setQueue(tracks, 0)
@@ -715,8 +735,21 @@ class LibraryViewModel(
         _state.value = _state.value.copy(browseTitle = null, browseTracks = null, activePlaylist = null)
     }
 
-    fun openArtist(item: ArtistBrowseItem) = openGroup(item.name) { item.id in artistGroupKeys(it, _state.value.artistAliases) }
-    fun openAlbum(item: AlbumBrowseItem) = openGroup(item.title) { albumGroupKey(it, _state.value.artistAliases) == item.id }
+    fun openArtist(item: ArtistBrowseItem) = openGroup(
+        item.name,
+        predicate = { item.id in artistGroupKeys(it, _state.value.artistAliases) },
+        comparator = compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.album }
+            .thenBy { it.discNumber }
+            .thenBy { it.trackNumber }
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
+    )
+    fun openAlbum(item: AlbumBrowseItem) = openGroup(
+        item.title,
+        predicate = { albumGroupKey(it, _state.value.artistAliases) == item.id },
+        comparator = compareBy<AudioTrack> { it.discNumber }
+            .thenBy { it.trackNumber }
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
+    )
 
     fun setArtistAlias(alias: String, canonicalName: String) {
         viewModelScope.launch {
@@ -962,7 +995,7 @@ class LibraryViewModel(
                     .filterNot { track -> folderIsHidden(track, _state.value.hiddenFolderPaths) }
             }
             val count = when {
-                playlist.autoKind == "favorites" -> favorites.size
+                playlist.autoKind == "favorites" -> playlistTracks.size
                 playlist.autoKind != null -> playlistTracks.size
                 !playlist.isLocal -> playlistTracks.size
                 else -> playlist.trackCount
@@ -987,8 +1020,12 @@ class LibraryViewModel(
         _state.value = current.copy(playlists = playlists, visiblePlaylists = filterPlaylists(playlists, current.searchQuery))
     }
 
-    private fun openGroup(title: String, predicate: (AudioTrack) -> Boolean) {
-        val tracks = availableTracks(_state.value).filter(predicate)
+    private fun openGroup(
+        title: String,
+        predicate: (AudioTrack) -> Boolean,
+        comparator: Comparator<AudioTrack>? = null,
+    ) {
+        val tracks = availableTracks(_state.value).filter(predicate).let { if (comparator == null) it else it.sortedWith(comparator) }
         _state.value = _state.value.copy(browseTitle = title, browseTracks = tracks)
     }
 
@@ -1030,12 +1067,6 @@ class LibraryViewModel(
             )
         }
         return if (ascending) sorted else sorted.asReversed()
-    }
-
-    private fun sortableTitle(title: String): String {
-        val withoutLeadingPunctuation = title.trim().replace(Regex("""^[\p{P}\p{S}\s]+"""), "")
-        val withoutArticle = withoutLeadingPunctuation.replace(Regex("""^the\b[\s\p{P}\p{S}]*""", RegexOption.IGNORE_CASE), "")
-        return withoutArticle.replace(Regex("""^[\p{P}\p{S}\s]+"""), "")
     }
 
     private companion object {

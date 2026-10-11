@@ -122,6 +122,10 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         if (oldVersion < 11) {
             createMissingArtworkCache(db)
         }
+        if (oldVersion < 12) {
+            db.delete("track_cache", null, null)
+            db.delete("track_scan_seen", null, null)
+        }
     }
 
     private fun createArtworkCache(db: SQLiteDatabase) {
@@ -740,7 +744,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     private companion object {
         val LEGACY_APPEARANCE_SETTINGS = setOf("accentName", "textColor", "text_color")
         const val DATABASE_NAME = "sj_music_library.db"
-        const val DATABASE_VERSION = 11
+        const val DATABASE_VERSION = 12
         const val CACHE_BATCH_SIZE = 200
         const val SETTING_HIDDEN_FOLDERS = "hiddenFolders"
         const val SETTING_LYRICS_TREE = "lyricsTreeUri"
@@ -766,7 +770,7 @@ private fun AudioTrack.toCacheJson() = JSONObject()
     .put("dateAddedSeconds", dateAddedSeconds).put("dateModifiedSeconds", dateModifiedSeconds).put("sizeBytes", sizeBytes).put("mimeType", mimeType)
     .put("bitrate", bitrate).put("sampleRateHz", sampleRateHz).put("filePath", filePath).put("relativePath", relativePath)
     .put("genre", genre).put("year", year).put("artistId", artistId).put("albumId", albumId).put("volumeName", volumeName)
-    .put("metadataCleaned", metadataCleaned)
+    .put("metadataCleaned", metadataCleaned).put("trackNumber", trackNumber).put("discNumber", discNumber)
 
 private fun trackFromJson(json: JSONObject) = AudioTrack(
     id = json.optLong("id", -1L), uri = Uri.parse(json.getString("uri")), title = json.optString("title"),
@@ -777,5 +781,6 @@ private fun trackFromJson(json: JSONObject) = AudioTrack(
     sampleRateHz = json.optInt("sampleRateHz", -1), filePath = json.optString("filePath"), relativePath = json.optString("relativePath"),
     genre = json.optString("genre"), year = json.optInt("year"), artistId = json.optLong("artistId", -1L),
     albumId = json.optLong("albumId", -1L), volumeName = json.optString("volumeName", "external"),
+    trackNumber = json.optInt("trackNumber", 0), discNumber = json.optInt("discNumber", 0),
     metadataCleaned = json.optBoolean("metadataCleaned", false),
 )

@@ -4,6 +4,24 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.text.TextAutoSize
@@ -12,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -34,6 +53,7 @@ import com.dizzyvy.rift.music.lyrics.LocalLyrics
 import com.dizzyvy.rift.music.lyrics.LocalLyricsRepository
 import com.dizzyvy.rift.music.playback.PlaybackSnapshot
 import com.dizzyvy.rift.ui.components.AlbumArtwork
+import com.dizzyvy.rift.ui.format.formatTime
 import com.dizzyvy.rift.ui.theme.RiftBackgroundBrush
 import com.dizzyvy.rift.ui.theme.ShrikhandHeading
 import kotlinx.coroutines.launch
@@ -93,6 +113,7 @@ fun NowPlayingScreen(
     var tracksToCreate by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var moreSheetOpen by remember { mutableStateOf(false) }
+    var lyricsPanelOpen by remember(track?.uri) { mutableStateOf(false) }
     var sleepTimerMinutes by remember { mutableStateOf(30) }
     var finishCurrentSong by remember { mutableStateOf(false) }
     var speedMenuOpen by remember { mutableStateOf(false) }
@@ -138,7 +159,10 @@ fun NowPlayingScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-    val artworkHeight = (maxHeight * 0.2f).coerceIn(100.dp, 160.dp)
+    val shortLayout = maxHeight < 640.dp
+    val artworkSize = minOf((maxWidth - 48.dp).coerceAtLeast(96.dp), maxHeight * 0.4f, 340.dp)
+    val wheelSize = if (shortLayout) 160.dp else minOf(maxWidth * 0.78f, 320.dp, maxHeight * 0.35f)
+    val lyricsListState = rememberLazyListState()
     val topGradient = Brush.verticalGradient(
         listOf(
             MaterialTheme.colorScheme.surface,
@@ -149,25 +173,94 @@ fun NowPlayingScreen(
     Column(
         Modifier.fillMaxSize()
             .background(topGradient)
+            .then(if (shortLayout) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             .padding(horizontal = 22.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("‹  LIBRARY") }
-            TextButton(onClick = { moreSheetOpen = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("More") }
+            TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("‹ Library") }
+            if (!shortLayout) Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = { moreSheetOpen = true },
+                modifier = Modifier.size(48.dp).semantics { contentDescription = "More playback options" },
+            ) {
+                Icon(Icons.Default.MoreVert, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+            }
         }
-        ShrikhandHeading(
-            "NOW PLAYING",
-            MaterialTheme.typography.labelMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
-        AlbumArtwork(track.uri, track.title, artworkRepository, Modifier.fillMaxWidth().height(artworkHeight).pointerInput(track.uri) {
-            var drag = 0f
-            detectHorizontalDragGestures(
-                onDragEnd = { if (drag > 48f) onNext() else if (drag < -48f) onPrevious(); drag = 0f },
-                onHorizontalDrag = { change, amount -> change.consume(); drag += amount },
+        if (!shortLayout) {
+            Text(
+                "NOW PLAYING",
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
-        }, contentScale = ContentScale.Fit, sourceDateModifiedSeconds = track.dateModifiedSeconds)
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            if (lyricsPanelOpen) {
+                Surface(
+                    modifier = Modifier.size(artworkSize).clickable { lyricsPanelOpen = false },
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    when {
+                        loadingLyrics -> Box(contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                        lyricsError -> Box(contentAlignment = Alignment.Center) {
+                            Text("Could not read lyrics from that folder.", color = MaterialTheme.colorScheme.error)
+                        }
+                        lyrics?.timedLines?.isNotEmpty() == true -> {
+                            val lines = lyrics!!.timedLines
+                            val active = lines.indexOfLast { it.timeMs <= playback.positionMs }.coerceAtLeast(0)
+                            LaunchedEffect(active) {
+                                lyricsListState.animateScrollToItem((active - 2).coerceAtLeast(0))
+                            }
+                            LazyColumn(
+                                state = lyricsListState,
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                itemsIndexed(lines) { index, line ->
+                                    Text(
+                                        line.text,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        textAlign = TextAlign.Center,
+                                        style = if (index == active) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                                        color = if (index == active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                        !lyrics?.plainText.isNullOrBlank() -> Text(
+                            lyrics!!.plainText,
+                            modifier = Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        else -> Box(contentAlignment = Alignment.Center) {
+                            Text("No lyrics found for this song.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            } else {
+                AlbumArtwork(
+                    track.uri,
+                    track.title,
+                    artworkRepository,
+                    Modifier.size(artworkSize)
+                        .shadow(10.dp, RoundedCornerShape(20.dp))
+                        .clickable { lyricsPanelOpen = true }
+                        .pointerInput(track.uri) {
+                            var drag = 0f
+                            detectHorizontalDragGestures(
+                                onDragEnd = { if (drag > 48f) onNext() else if (drag < -48f) onPrevious(); drag = 0f },
+                                onHorizontalDrag = { change, amount -> change.consume(); drag += amount },
+                            )
+                        },
+                    contentScale = ContentScale.Fit,
+                    sourceDateModifiedSeconds = track.dateModifiedSeconds,
+                    cornerRadius = 20.dp,
+                )
+            }
+        }
         ShrikhandHeading(
             track.title,
             MaterialTheme.typography.titleLarge,
@@ -180,12 +273,42 @@ fun NowPlayingScreen(
         val album = displayMetadata(track.album, "Unknown album")
         val artist = displayMetadata(track.artist, "Unknown artist")
         val metadata = if (album.equals(track.title.trim(), ignoreCase = true)) artist else "$artist  ·  $album"
-        Text(metadata, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            AssistChip(onClick = { showPlaylistSheet = true }, label = { Text("Add to playlist") }, modifier = Modifier.heightIn(min = 48.dp))
-            AssistChip(onClick = { onFavorite(track, !isFavorite) }, label = { Text(if (isFavorite) "♥ Favorite" else "♡ Favorite", color = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }, modifier = Modifier.heightIn(min = 48.dp).semantics {
+        Text(metadata, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { onFavorite(track, !isFavorite) }, modifier = Modifier.size(48.dp).semantics {
                 contentDescription = if (isFavorite) "Remove ${track.title} from favorites" else "Add ${track.title} to favorites"
-            })
+            }) {
+                Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null, tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            }
+            IconButton(onClick = { showPlaylistSheet = true }, modifier = Modifier.size(48.dp).semantics { contentDescription = "Add to playlist" }) {
+                Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+            }
+            IconButton(onClick = { queueOpen = true }, modifier = Modifier.size(48.dp).semantics { contentDescription = "Open Up Next" }) {
+                Icon(Icons.Default.QueueMusic, contentDescription = null, tint = if (queueOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            }
+            IconButton(onClick = { onShuffle(!playback.shuffleEnabled) }, modifier = Modifier.size(48.dp).semantics { contentDescription = if (playback.shuffleEnabled) "Turn shuffle off" else "Turn shuffle on" }) {
+                Icon(Icons.Default.Shuffle, contentDescription = null, tint = if (playback.shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            }
+            IconButton(
+                onClick = {
+                    onRepeat(
+                        when (playback.repeatMode) {
+                            androidx.media3.common.Player.REPEAT_MODE_OFF -> androidx.media3.common.Player.REPEAT_MODE_ALL
+                            androidx.media3.common.Player.REPEAT_MODE_ALL -> androidx.media3.common.Player.REPEAT_MODE_ONE
+                            else -> androidx.media3.common.Player.REPEAT_MODE_OFF
+                        },
+                    )
+                },
+                modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = when (playback.repeatMode) {
+                        androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repeat all"
+                        androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repeat one"
+                        else -> "Repeat off"
+                    }
+                },
+            ) {
+                Icon(Icons.Default.Repeat, contentDescription = null, tint = if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary)
+            }
         }
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Slider(
@@ -211,12 +334,8 @@ fun NowPlayingScreen(
             Text(formatTime(displayedPosition), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("-${formatTime((playback.durationMs - displayedPosition).coerceAtLeast(0L))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(selected = playback.shuffleEnabled, onClick = { onShuffle(!playback.shuffleEnabled) }, label = { Text(if (playback.shuffleEnabled) "Shuffle on" else "Shuffle off") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
-            FilterChip(selected = playback.repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF, onClick = { onRepeat(if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) androidx.media3.common.Player.REPEAT_MODE_ALL else if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF) }, label = {
-                Text(when (playback.repeatMode) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repeat all"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repeat one"; else -> "Repeat off" })
-            }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
-        }
+        playback.errorMessage?.let { Text(it, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
+        Spacer(Modifier.weight(1f))
         ClickWheel(
             playing = playback.isPlaying,
             queueOpen = queueOpen,
@@ -224,10 +343,11 @@ fun NowPlayingScreen(
             onPrevious = onPrevious,
             onTogglePlayback = onPlayPause,
             onNext = onNext,
-            onSelect = { queueOpen = true; moreSheetOpen = true },
+            onSelect = { queueOpen = true },
             sensitivity = clickWheelSensitivity,
             hapticsEnabled = clickWheelHaptics,
-            compact = true,
+            compact = shortLayout,
+            size = wheelSize,
             onRotateStart = {
                 wheelSeekPositionMs[0] = playback.positionMs
                 lastWheelSeekAtMs[0] = 0L
@@ -247,6 +367,7 @@ fun NowPlayingScreen(
                 lastWheelSeekAtMs[0] = SystemClock.elapsedRealtime()
             },
         )
+        if (shortLayout) Spacer(Modifier.height(8.dp)) else Spacer(Modifier.weight(1f))
     }
     SnackbarHost(hostState = queueSnackbarState, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
     }
@@ -254,23 +375,6 @@ fun NowPlayingScreen(
         ModalBottomSheet(onDismissRequest = { moreSheetOpen = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp)) {
                 ShrikhandHeading("More playback options", MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { queueOpen = !queueOpen }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if (queueOpen) "Hide Up Next" else "Show Up Next") }
-                if (queueOpen) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("UP NEXT · ${playback.queue.size}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(onClick = { playlistName = ""; tracksToCreate = playback.queue; showCreatePlaylistDialog = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Save as playlist") }
-                        TextButton(onClick = { confirmClearQueue = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear") }
-                    }
-                    playback.queue.forEachIndexed { index, queued ->
-                        QueueRow(track = queued, current = index == playback.currentIndex, canMoveUp = index > 0, canMoveDown = index < playback.queue.lastIndex, onSelect = { onPlayQueueItem(index) }, onRemove = {
-                            onRemoveQueueItem(index)
-                            scope.launch {
-                                val result = queueSnackbarState.showSnackbar("Removed ${queued.title} from queue", "Undo", withDismissAction = true)
-                                if (result == SnackbarResult.ActionPerformed) onRestoreQueueItem(queued, index)
-                            }
-                        }, onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) }, onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) })
-                    }
-                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
                     FilterChip(
                         selected = loopStartMs != null,
@@ -309,25 +413,6 @@ fun NowPlayingScreen(
                                 DropdownMenuItem(text = { Text("${speed}×") }, onClick = { onPlaybackSpeed(speed); speedMenuOpen = false })
                             }
                         }
-                        if (confirmClearQueue) {
-                            AlertDialog(
-                                onDismissRequest = { confirmClearQueue = false },
-                                title = { ShrikhandHeading("Clear the queue?", MaterialTheme.typography.headlineSmall) },
-                                text = { Text("Remove all ${playback.queue.size} tracks from Up Next?") },
-                                confirmButton = {
-                                    TextButton(
-                                        onClick = {
-                                            onClearQueue()
-                                            confirmClearQueue = false
-                                        },
-                                        modifier = Modifier.heightIn(min = 48.dp),
-                                    ) { Text("Clear queue") }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = { confirmClearQueue = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel") }
-                                },
-                            )
-                        }
                     }
                 }
                 AssistChip(onClick = { showSleepTimerDialog = true }, label = { Text(when {
@@ -350,24 +435,79 @@ fun NowPlayingScreen(
                     Text("LYRICS", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = onChooseLyricsDirectory) { Text("Change folder") }
                 } else TextButton(onClick = onChooseLyricsDirectory, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Set up lyrics") }
-                when {
-                    lyricsDirectoryUri == null -> Unit
-                    loadingLyrics -> LinearProgressIndicator(Modifier.fillMaxWidth())
-                    lyricsError -> Text("Could not read lyrics from that folder.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                    lyrics?.timedLines?.isNotEmpty() == true -> {
-                        val lines = lyrics!!.timedLines
-                        val active = lines.indexOfLast { it.timeMs <= playback.positionMs }.coerceAtLeast(0)
-                        (active - 2).coerceAtLeast(0).rangeTo((active + 2).coerceAtMost(lines.lastIndex)).forEach { index ->
-                            Text(lines[index].text, modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), textAlign = TextAlign.Center, style = if (index == active) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium, color = if (index == active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    !lyrics?.plainText.isNullOrBlank() -> Text(lyrics!!.plainText, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, maxLines = 12, overflow = TextOverflow.Ellipsis)
-                    else -> Text("No lyrics found for this song.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (playback.errorMessage != null) Text(playback.errorMessage, Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+    if (queueOpen) {
+        val queueListState = rememberLazyListState()
+        LaunchedEffect(playback.currentIndex, playback.queue.size) {
+            if (playback.currentIndex >= 0) {
+                queueListState.animateScrollToItem((playback.currentIndex + 1).coerceAtMost(playback.queue.size))
+            }
+        }
+        ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
+            LazyColumn(
+                state = queueListState,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp),
+                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
+            ) {
+                item(key = "queue-header") {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            ShrikhandHeading("Up Next", MaterialTheme.typography.titleLarge)
+                            Text("${playback.queue.size} tracks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(
+                            onClick = { playlistName = ""; tracksToCreate = playback.queue; showCreatePlaylistDialog = true },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Save as playlist") }
+                        TextButton(
+                            onClick = { confirmClearQueue = true },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Clear") }
+                    }
+                }
+                itemsIndexed(playback.queue, key = { index, queued -> "queue:${queued.uri}:$index" }) { index, queued ->
+                    QueueRow(
+                        track = queued,
+                        current = index == playback.currentIndex,
+                        canMoveUp = index > 0,
+                        canMoveDown = index < playback.queue.lastIndex,
+                        onSelect = { onPlayQueueItem(index) },
+                        onRemove = {
+                            onRemoveQueueItem(index)
+                            scope.launch {
+                                val result = queueSnackbarState.showSnackbar(
+                                    "Removed ${queued.title} from queue",
+                                    "Undo",
+                                    withDismissAction = true,
+                                )
+                                if (result == SnackbarResult.ActionPerformed) onRestoreQueueItem(queued, index)
+                            }
+                        },
+                        onMoveUp = { if (index > 0) onMoveQueueItem(index, index - 1) },
+                        onMoveDown = { if (index < playback.queue.lastIndex) onMoveQueueItem(index, index + 1) },
+                    )
+                }
+            }
+        }
+    }
+    if (confirmClearQueue) {
+        AlertDialog(
+            onDismissRequest = { confirmClearQueue = false },
+            title = { ShrikhandHeading("Clear the queue?", MaterialTheme.typography.headlineSmall) },
+            text = { Text("Remove all ${playback.queue.size} tracks from Up Next?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClearQueue()
+                    confirmClearQueue = false
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear queue") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearQueue = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel") }
+            },
+        )
     }
     if (showPlaylistSheet) {
         ModalBottomSheet(onDismissRequest = { showPlaylistSheet = false }) {
@@ -482,7 +622,7 @@ private fun QueueRow(
             ) {
                     Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface, fontWeight = if (current) FontWeight.Bold else FontWeight.Medium)
                     val artist = track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"
-                    Text(if (current) "NOW PLAYING · $artist" else artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (current) "Playing next · $artist" else artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Box(
                 Modifier.size(48.dp)
@@ -505,22 +645,12 @@ private fun QueueRow(
                         }
                     },
                 contentAlignment = Alignment.Center,
-            ) { Text("≡", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            TextButton(
+            ) { Icon(Icons.Default.Menu, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            IconButton(
                 onClick = onRemove,
-                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                    .semantics { contentDescription = "Remove ${track.title} from queue" },
-            ) { Text("×") }
+                modifier = Modifier.size(48.dp).semantics { contentDescription = "Remove ${track.title} from queue" },
+            ) { Icon(Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-    }
-}
-
-private fun formatTime(milliseconds: Long): String {
-    val seconds = milliseconds.coerceAtLeast(0L) / 1_000L
-    return if (seconds >= 3_600L) {
-        "%d:%02d:%02d".format(seconds / 3_600L, seconds / 60L % 60L, seconds % 60L)
-    } else {
-        "%d:%02d".format(seconds / 60L, seconds % 60L)
     }
 }
 

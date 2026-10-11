@@ -25,4 +25,6 @@ data class AudioTrack(
     val albumId: Long = -1L,
     val volumeName: String = "external",
     val metadataCleaned: Boolean = false,
+    val trackNumber: Int = 0,
+    val discNumber: Int = 0,
 )

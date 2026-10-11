@@ -15,7 +15,15 @@ private val unknownMetadata = setOf("", "unknown", "<unknown>", "unknown album",
 private val uploaderChannels = setOf("ea4kfilms", "flexxbfilmz", "raptv")
 
 private val genreMappings = mapOf(
+    "hip-hop & rap" to "Hip-Hop/Rap",
+    "hip hop & rap" to "Hip-Hop/Rap",
     "hip-hop/rap" to "Hip-Hop/Rap",
+    "hip hop/rap" to "Hip-Hop/Rap",
+    "hip-hop rap" to "Hip-Hop/Rap",
+    "rap & hip-hop" to "Hip-Hop/Rap",
+    "rap & hip hop" to "Hip-Hop/Rap",
+    "rap/hip-hop" to "Hip-Hop/Rap",
+    "rap/hip hop" to "Hip-Hop/Rap",
     "hip-hop" to "Hip-Hop/Rap",
     "hip hop" to "Hip-Hop/Rap",
     "rap" to "Hip-Hop/Rap",
@@ -73,11 +81,14 @@ fun cleanTitleTags(value: String): String = value
 fun canonicalGenre(value: String): String? {
     val normalized = value.trim().replace(metadataWhitespace, " ").lowercase()
     if (normalized in ignoredVideoGenres || isUnknownMetadata(normalized)) return null
-    return genreMappings[normalized] ?: normalized.split(' ').joinToString(" ") { word ->
-        when (word) {
-            "r&b" -> "R&B"
+    val compact = normalized.filter(Char::isLetterOrDigit)
+    if (compact == "hiphoprap" || compact == "raphiphop") return "Hip-Hop/Rap"
+    return genreMappings[normalized] ?: Regex("[\\p{L}\\p{N}]+").replace(normalized) { match ->
+        when (match.value) {
+            "r" -> "R"
+            "b" -> "B"
             "edm" -> "EDM"
-            else -> word.replaceFirstChar { it.uppercase() }
+            else -> match.value.replaceFirstChar { it.uppercase() }
         }
     }
 }

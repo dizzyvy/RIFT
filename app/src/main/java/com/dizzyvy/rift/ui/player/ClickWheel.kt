@@ -10,6 +10,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -25,6 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.atan2
 
@@ -43,6 +50,7 @@ fun ClickWheel(
     sensitivity: Float = 1f,
     hapticsEnabled: Boolean = true,
     compact: Boolean = false,
+    size: Dp? = null,
 ) {
     val view = LocalView.current
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -56,8 +64,8 @@ fun ClickWheel(
     val haptics = remember(view, latestOnRotate, sensitivity, hapticsEnabled) {
         HapticDetents(view, sensitivity.coerceIn(0.5f, 2f), hapticsEnabled) { latestOnRotate.value(it) }
     }
-    val wheelSize = if (compact) 160.dp else 270.dp
-    Box(Modifier.fillMaxWidth().height(if (compact) 168.dp else 286.dp), contentAlignment = Alignment.Center) {
+    val wheelSize = size ?: if (compact) 160.dp else 270.dp
+    Box(Modifier.fillMaxWidth().height(wheelSize + 16.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier.size(wheelSize).clip(CircleShape)
                 .background(wheelColor)
@@ -100,9 +108,14 @@ fun ClickWheel(
             // A second inset disc gives the wheel a clean inner track; the center is a plain SELECT control.
             Box(Modifier.fillMaxSize().padding(if (compact) 24.dp else 36.dp).clip(CircleShape).background(wheelInsetColor))
             WheelLabel("MENU", Modifier.align(Alignment.TopCenter).padding(top = if (compact) 8.dp else 19.dp), onMenu)
-            WheelLabel("|◀", Modifier.align(Alignment.CenterStart).padding(start = if (compact) 4.dp else 15.dp), onPrevious)
-            WheelLabel("▶|", Modifier.align(Alignment.CenterEnd).padding(end = if (compact) 4.dp else 15.dp), onNext)
-            WheelLabel(if (playing) "❚❚" else "▶", Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 8.dp else 19.dp), onTogglePlayback)
+            WheelIcon(Icons.Default.SkipPrevious, "Previous track", Modifier.align(Alignment.CenterStart).padding(start = if (compact) 4.dp else 15.dp), onPrevious)
+            WheelIcon(Icons.Default.SkipNext, "Next track", Modifier.align(Alignment.CenterEnd).padding(end = if (compact) 4.dp else 15.dp), onNext)
+            WheelIcon(
+                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                if (playing) "Pause playback" else "Resume playback",
+                Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 8.dp else 19.dp),
+                onTogglePlayback,
+            )
             Surface(onClick = onSelect, modifier = Modifier.size(if (compact) 68.dp else 104.dp).semantics { contentDescription = if (queueOpen) "Close Up Next" else "Open Up Next" }, shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
                 Box(contentAlignment = Alignment.Center) { Text("SELECT", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
             }
@@ -112,8 +125,24 @@ fun ClickWheel(
 
 @Composable
 private fun WheelLabel(label: String, modifier: Modifier, onClick: () -> Unit) {
-    Box(modifier.sizeIn(minWidth = 58.dp, minHeight = 42.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = when (label) { "MENU" -> "Menu"; "|◀" -> "Previous track"; "▶|" -> "Next track"; else -> "Playback" } }, contentAlignment = Alignment.Center) {
+    Box(modifier.sizeIn(minWidth = 58.dp, minHeight = 48.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = "Menu" }, contentAlignment = Alignment.Center) {
         Text(label, fontSize = if (label == "MENU") 11.sp else 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+@Composable
+private fun WheelIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier.sizeIn(minWidth = 58.dp, minHeight = 48.dp).clip(CircleShape)
+            .clickable(onClick = onClick).semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
     }
 }
 
