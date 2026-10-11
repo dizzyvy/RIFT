@@ -5,3 +5,8 @@
 local.properties
 **/build/
 .superpowers/
+*.keystore
+*.jks
+*.p12
+*.pfx
+key.properties

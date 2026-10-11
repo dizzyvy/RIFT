@@ -10,15 +10,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-pull-request:
+    if: github.event_name == 'pull_request'
     name: Test and build debug APK
     uses: ./.github/workflows/android-build.yml
+    with:
+      signing_enabled: false
+    permissions:
+      contents: read
+
+  build-trusted:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    name: Test and build signed debug APK
+    uses: ./.github/workflows/android-build.yml
+    with:
+      signing_enabled: true
+    secrets:
+      RIFT_SIGNING_KEYSTORE_BASE64: ${{ secrets.RIFT_SIGNING_KEYSTORE_BASE64 }}
+      RIFT_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.RIFT_SIGNING_KEYSTORE_PASSWORD }}
     permissions:
       contents: read
 
   prerelease:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: build-trusted
     runs-on: ubuntu-latest
     permissions:
       contents: write

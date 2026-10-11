@@ -2,6 +2,17 @@ name: Android build
 
 on:
   workflow_call:
+    inputs:
+      signing_enabled:
+        description: Use the permanent signing key for trusted builds.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      RIFT_SIGNING_KEYSTORE_BASE64:
+        required: false
+      RIFT_SIGNING_KEYSTORE_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -10,6 +21,8 @@ jobs:
   assemble-debug:
     name: Test and build debug APK
     runs-on: ubuntu-latest
+    env:
+      RIFT_SIGNING_DIRECTORY: rift-signing-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -40,12 +53,70 @@ jobs:
             app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: warn
           retention-days: 14
-      - name: Assemble debug APK
+      - name: Decode permanent signing keystore
+        id: signing
+        if: inputs.signing_enabled
+        env:
+          RIFT_SIGNING_KEYSTORE_BASE64: ${{ secrets.RIFT_SIGNING_KEYSTORE_BASE64 }}
+          RIFT_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.RIFT_SIGNING_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "${RIFT_SIGNING_KEYSTORE_BASE64:-}" ]]; then
+            echo "::error::RIFT_SIGNING_KEYSTORE_BASE64 is required for trusted builds."
+            exit 1
+          fi
+          if [[ -z "${RIFT_SIGNING_KEYSTORE_PASSWORD:-}" ]]; then
+            echo "::error::RIFT_SIGNING_KEYSTORE_PASSWORD is required for trusted builds."
+            exit 1
+          fi
+          signing_directory="${RUNNER_TEMP}/${RIFT_SIGNING_DIRECTORY}"
+          mkdir -m 700 -p "$signing_directory"
+          chmod 700 "$signing_directory"
+          keystore_path="${signing_directory}/rift-debug.keystore"
+          printf '%s' "$RIFT_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          chmod 600 "$keystore_path"
+      - name: Assemble signed debug APK
+        if: inputs.signing_enabled
+        env:
+          RIFT_SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/rift-signing-${{ github.run_id }}-${{ github.run_attempt }}/rift-debug.keystore
+          RIFT_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.RIFT_SIGNING_KEYSTORE_PASSWORD }}
+          RIFT_SIGNING_KEY_ALIAS: rift-debug
+          RIFT_SIGNING_KEY_PASSWORD: ${{ secrets.RIFT_SIGNING_KEYSTORE_PASSWORD }}
         run: ./gradlew --no-daemon assembleDebug
-      - name: Upload debug APK
+      - name: Assemble pull-request debug APK
+        if: ${{ !inputs.signing_enabled }}
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Remove temporary signing keystore
+        if: ${{ always() && inputs.signing_enabled }}
+        run: |
+          set -euo pipefail
+          signing_directory="${RUNNER_TEMP}/${RIFT_SIGNING_DIRECTORY}"
+          if [[ -d "$signing_directory" ]]; then
+            case "$RIFT_SIGNING_DIRECTORY" in
+              "rift-signing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}")
+                rm -f -- "$signing_directory/rift-debug.keystore"
+                rmdir -- "$signing_directory"
+                ;;
+              *)
+                echo "::error::Refusing to remove an unexpected signing directory."
+                exit 1
+                ;;
+            esac
+          fi
+      - name: Upload trusted debug APK
+        if: inputs.signing_enabled
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload pull-request debug APK
+        if: ${{ !inputs.signing_enabled }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-pull-request
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
