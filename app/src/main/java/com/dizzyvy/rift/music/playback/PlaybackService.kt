@@ -9,6 +9,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -21,11 +22,19 @@ import java.util.concurrent.Executors
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
+    private data class SavedQueueEntry(
+        val uri: String,
+        val title: String,
+        val artist: String,
+        val album: String,
+    )
+
     private var mediaSession: MediaSession? = null
     private val handler = Handler(Looper.getMainLooper())
     private val playbackIo = Executors.newSingleThreadExecutor()
     private val playbackStore by lazy { SqlitePlaylistStore(applicationContext) }
     @Volatile private var destroyed = false
+    @Volatile private var savedQueueJson = "[]"
     private val checkpoint = object : Runnable {
         override fun run() {
             savePlaybackState()
@@ -34,7 +43,7 @@ class PlaybackService : MediaSessionService() {
     }
     private val playerListener = object : androidx.media3.common.Player.Listener {
         override fun onEvents(player: androidx.media3.common.Player, events: androidx.media3.common.Player.Events) {
-            if (!destroyed) savePlaybackState()
+            if (!destroyed) savePlaybackState(events.contains(Player.EVENT_TIMELINE_CHANGED))
         }
     }
 
@@ -56,6 +65,7 @@ class PlaybackService : MediaSessionService() {
                     playbackIo.execute {
                         runCatching { loadOrMigratePlaybackState() }
                             .onSuccess { state ->
+                                savedQueueJson = state[KEY_QUEUE].orEmpty().ifBlank { "[]" }
                                 val items = readSavedQueue(state)
                                 if (items.isEmpty()) {
                                     result.setException(IllegalStateException("No saved local track"))
@@ -80,9 +90,12 @@ class PlaybackService : MediaSessionService() {
             .build()
         playbackIo.execute {
             runCatching { loadOrMigratePlaybackState() }
-                .onSuccess { state -> handler.post {
-                    if (!destroyed && player.mediaItemCount == 0) restorePlaybackState(player, state)
-                } }
+                .onSuccess { state ->
+                    savedQueueJson = state[KEY_QUEUE].orEmpty().ifBlank { "[]" }
+                    handler.post {
+                        if (!destroyed && player.mediaItemCount == 0) restorePlaybackState(player, state)
+                    }
+                }
                 .onFailure { android.util.Log.e(TAG, "Could not restore saved playback state", it) }
         }
         handler.postDelayed(checkpoint, CHECKPOINT_MS)
@@ -113,38 +126,55 @@ class PlaybackService : MediaSessionService() {
         player.prepare()
     }
 
-    private fun savePlaybackState() {
+    private fun savePlaybackState(queueChanged: Boolean = false) {
         val player = mediaSession?.player ?: return
         if (player.mediaItemCount == 0) {
-            playbackIo.execute { playbackStore.savePlaybackStateSync(emptyMap()) }
+            playbackIo.execute {
+                savedQueueJson = "[]"
+                playbackStore.savePlaybackStateSync(emptyMap())
+            }
             return
         }
         val item = player.currentMediaItem ?: return
         val uri = item.localConfiguration?.uri ?: return
         val metadata = item.mediaMetadata
-        val queue = JSONArray()
-        for (index in 0 until player.mediaItemCount) {
-            val queuedItem = player.getMediaItemAt(index)
-            val queuedUri = queuedItem.localConfiguration?.uri ?: continue
-            val queuedMetadata = queuedItem.mediaMetadata
-            queue.put(JSONObject()
-                .put("uri", queuedUri.toString())
-                .put("title", queuedMetadata.title?.toString().orEmpty())
-                .put("artist", queuedMetadata.artist?.toString().orEmpty())
-                .put("album", queuedMetadata.albumTitle?.toString().orEmpty()))
-        }
-        val savedState = mapOf(
+        val queueSnapshot = if (queueChanged) {
+            (0 until player.mediaItemCount).mapNotNull { index ->
+                val queuedItem = player.getMediaItemAt(index)
+                val queuedUri = queuedItem.localConfiguration?.uri ?: return@mapNotNull null
+                val queuedMetadata = queuedItem.mediaMetadata
+                SavedQueueEntry(
+                    uri = queuedUri.toString(),
+                    title = queuedMetadata.title?.toString().orEmpty(),
+                    artist = queuedMetadata.artist?.toString().orEmpty(),
+                    album = queuedMetadata.albumTitle?.toString().orEmpty(),
+                )
+            }
+        } else null
+        val playbackFields = mapOf(
             KEY_URI to uri.toString(),
             KEY_TITLE to metadata.title?.toString().orEmpty(),
             KEY_ARTIST to metadata.artist?.toString().orEmpty(),
             KEY_ALBUM to metadata.albumTitle?.toString().orEmpty(),
-            KEY_QUEUE to queue.toString(),
             KEY_INDEX to player.currentMediaItemIndex.coerceAtLeast(0).toString(),
             KEY_POSITION to player.currentPosition.coerceAtLeast(0L).toString(),
             KEY_SHUFFLE to player.shuffleModeEnabled.toString(),
             KEY_REPEAT to player.repeatMode.toString(),
         )
-        playbackIo.execute { playbackStore.savePlaybackStateSync(savedState) }
+        playbackIo.execute {
+            if (queueSnapshot != null) {
+                savedQueueJson = JSONArray().apply {
+                    queueSnapshot.forEach { queued ->
+                        put(JSONObject()
+                            .put("uri", queued.uri)
+                            .put("title", queued.title)
+                            .put("artist", queued.artist)
+                            .put("album", queued.album))
+                    }
+                }.toString()
+            }
+            playbackStore.savePlaybackStateSync(playbackFields + (KEY_QUEUE to savedQueueJson))
+        }
     }
 
     private fun readSavedQueue(state: Map<String, String>): List<MediaItem> {

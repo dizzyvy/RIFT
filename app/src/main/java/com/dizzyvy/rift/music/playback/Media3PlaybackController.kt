@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val MEDIA_METADATA_DURATION_MS = "com.dizzyvy.rift.duration_ms"
 
@@ -47,6 +48,8 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     private val pendingAddedTracks = mutableListOf<AudioTrack>()
     private val pendingPlayNextTracks = mutableListOf<AudioTrack>()
     private var positionJob: Job? = null
+    private var queueMappingJob: Job? = null
+    private var queueRevision = 0
     private var highFrequencyPosition = false
     private var abLoopStartMs: Long? = null
     private var abLoopEndMs: Long? = null
@@ -68,7 +71,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
             }
             _snapshot.value = _snapshot.value.copy(errorMessage = null)
             mediaController?.let { player ->
-                refreshSnapshot(player, queueChanged = true)
+                refreshSnapshot(player)
                 player.currentMediaItem?.toAudioTrack()?.let(::loadSessionArtwork)
             }
         }
@@ -313,9 +316,25 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     }
 
     private fun refreshSnapshot(player: Player, queueChanged: Boolean = false) {
-        val queue = if (queueChanged || _snapshot.value.queue.size != player.mediaItemCount) {
-            (0 until player.mediaItemCount).mapNotNull { index -> player.getMediaItemAt(index).toAudioTrack() }
-        } else _snapshot.value.queue
+        val needsQueueMapping = queueChanged || _snapshot.value.queue.size != player.mediaItemCount
+        if (needsQueueMapping) {
+            val revision = ++queueRevision
+            val mediaItems = (0 until player.mediaItemCount).map { index -> player.getMediaItemAt(index) }
+            queueMappingJob?.cancel()
+            queueMappingJob = scope.launch {
+                val queue = withContext(Dispatchers.Default) {
+                    mediaItems.mapNotNull { item -> item.toAudioTrack() }
+                }
+                if (revision != queueRevision || mediaController !== player) return@launch
+                updateSnapshot(player, queue)
+            }
+            return
+        }
+        if (queueMappingJob?.isActive == true) return
+        updateSnapshot(player, _snapshot.value.queue)
+    }
+
+    private fun updateSnapshot(player: Player, queue: List<AudioTrack>) {
         val currentIndex = player.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
         val currentTrack = queue.getOrNull(currentIndex)
         val duration = player.duration.takeIf { it >= 0L && it != C.TIME_UNSET } ?: currentTrack?.durationMs ?: 0L

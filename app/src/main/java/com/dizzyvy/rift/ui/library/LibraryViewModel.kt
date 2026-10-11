@@ -150,6 +150,23 @@ private fun preferredArtworkTrack(tracks: List<AudioTrack>): AudioTrack =
 
 data class DuplicateGroup(val id: String, val tracks: List<AudioTrack>, val reason: String)
 
+private data class DerivedLibraryData(
+    val availableTracks: List<AudioTrack>,
+    val artists: List<ArtistBrowseItem>,
+    val visibleArtists: List<ArtistBrowseItem>,
+    val albums: List<AlbumBrowseItem>,
+    val visibleAlbums: List<AlbumBrowseItem>,
+    val folders: List<LibraryCollectionItem>,
+    val visibleFolders: List<LibraryCollectionItem>,
+    val hiddenFolders: List<LibraryCollectionItem>,
+    val visibleHiddenFolders: List<LibraryCollectionItem>,
+    val genres: List<LibraryCollectionItem>,
+    val visibleGenres: List<LibraryCollectionItem>,
+    val years: List<LibraryCollectionItem>,
+    val visibleYears: List<LibraryCollectionItem>,
+    val visibleTracks: List<AudioTrack>,
+)
+
 internal fun recommendedDuplicateCopy(tracks: List<AudioTrack>): AudioTrack? =
     tracks.maxWithOrNull(
         compareBy<AudioTrack> { it.bitrate }
@@ -314,6 +331,7 @@ data class LibraryUiState(
     val visibleYears: List<LibraryCollectionItem> = emptyList(),
     val duplicateGroups: List<DuplicateGroup> = emptyList(),
     val visibleDuplicateGroups: List<DuplicateGroup> = emptyList(),
+    val duplicateGroupsLoaded: Boolean = false,
 )
 
 data class PlaylistImportReport(
@@ -331,6 +349,8 @@ class LibraryViewModel(
     private val _state = MutableStateFlow(LibraryUiState())
     private var refreshAfterCurrentLoad = false
     private var searchJob: Job? = null
+    private var duplicateGroupsJob: Job? = null
+    private var duplicateGroupsRequested = false
     private var trackSearchIndex: Map<String, TrackSearchDocument> = emptyMap()
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
@@ -421,10 +441,22 @@ class LibraryViewModel(
         }
         if (!forceRefresh && _state.value.tracks.isNotEmpty()) return
 
-        _state.value = _state.value.copy(isLoading = true, permissionRequired = false, message = null, scanProcessed = 0, scanTotal = null)
+        duplicateGroupsJob?.cancel()
+        _state.value = _state.value.copy(
+            isLoading = true,
+            permissionRequired = false,
+            message = null,
+            scanProcessed = 0,
+            scanTotal = null,
+            duplicateGroups = emptyList(),
+            visibleDuplicateGroups = emptyList(),
+            duplicateGroupsLoaded = false,
+        )
         viewModelScope.launch {
             try {
-                val cachedTracks = playlistStore.loadCachedTracks().map(::cleanTrackMetadata)
+                val cachedTracks = withContext(Dispatchers.Default) {
+                    playlistStore.loadCachedTracks().map(::cleanTrackMetadata)
+                }
                 val artistAliases = playlistStore.loadArtistAliases()
                 if (_state.value.tracks.isEmpty() && cachedTracks.isNotEmpty()) {
                     rebuildTrackSearchIndex(cachedTracks)
@@ -441,37 +473,35 @@ class LibraryViewModel(
                     )
                     yield()
                     val hydratedState = _state.value
-                    val availableCachedTracks = cachedTracks.filterNot { folderIsHidden(it, cachedHidden) }
-                    val cachedArtists = buildArtists(availableCachedTracks, artistAliases)
-                    val cachedAlbums = buildAlbums(availableCachedTracks, artistAliases)
-                    val cachedNotDuplicatePairs = playlistStore.loadNotDuplicatePairs()
-                    val cachedFolders = buildFolderItems(availableCachedTracks)
-                    val cachedHiddenFolders = buildHiddenFolderItems(cachedTracks, cachedHidden)
-                    val cachedGenres = buildGenres(availableCachedTracks)
-                    val cachedYears = buildYears(availableCachedTracks)
-                    val cachedDuplicateGroups = buildDuplicateGroups(availableCachedTracks, artistAliases, cachedNotDuplicatePairs)
+                    val cachedDerived = deriveLibraryData(cachedTracks, cachedHidden, artistAliases, hydratedState)
                     val cachedFavorites = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                     val cachedHistory = playlistStore.loadPlayHistory()
-                    val cachedPlaylists = withPlaylistCounts(playlistStore.loadPlaylists(), availableCachedTracks, cachedFavorites, cachedHistory)
+                    val cachedPlaylists = withPlaylistCounts(
+                        playlistStore.loadPlaylists(),
+                        cachedDerived.availableTracks,
+                        cachedFavorites,
+                        cachedHistory,
+                    )
                     _state.value = hydratedState.copy(
                         artistAliases = artistAliases,
                         tracks = cachedTracks,
-                        visibleTracks = filterTracks(availableCachedTracks, hydratedState.searchQuery, hydratedState.sortOrder, hydratedState.hideShortTracks),
-                        artists = cachedArtists,
-                        visibleArtists = filterArtists(cachedArtists, hydratedState.searchQuery),
-                        albums = cachedAlbums,
-                        visibleAlbums = filterAlbums(cachedAlbums, hydratedState.searchQuery),
+                        visibleTracks = cachedDerived.visibleTracks,
+                        artists = cachedDerived.artists,
+                        visibleArtists = cachedDerived.visibleArtists,
+                        albums = cachedDerived.albums,
+                        visibleAlbums = cachedDerived.visibleAlbums,
                         hiddenFolderPaths = cachedHidden,
-                        folders = cachedFolders,
-                        visibleFolders = filterCollections(cachedFolders, hydratedState.searchQuery),
-                        hiddenFolders = cachedHiddenFolders,
-                        visibleHiddenFolders = filterCollections(cachedHiddenFolders, hydratedState.searchQuery),
-                        genres = cachedGenres,
-                        visibleGenres = filterCollections(cachedGenres, hydratedState.searchQuery),
-                        years = cachedYears,
-                        visibleYears = filterCollections(cachedYears, hydratedState.searchQuery),
-                        duplicateGroups = cachedDuplicateGroups,
-                        visibleDuplicateGroups = filterDuplicateGroups(cachedDuplicateGroups, hydratedState.searchQuery),
+                        folders = cachedDerived.folders,
+                        visibleFolders = cachedDerived.visibleFolders,
+                        hiddenFolders = cachedDerived.hiddenFolders,
+                        visibleHiddenFolders = cachedDerived.visibleHiddenFolders,
+                        genres = cachedDerived.genres,
+                        visibleGenres = cachedDerived.visibleGenres,
+                        years = cachedDerived.years,
+                        visibleYears = cachedDerived.visibleYears,
+                        duplicateGroups = emptyList(),
+                        visibleDuplicateGroups = emptyList(),
+                        duplicateGroupsLoaded = false,
                         favoriteUris = cachedFavorites,
                         playHistory = cachedHistory,
                         playlists = cachedPlaylists,
@@ -485,48 +515,43 @@ class LibraryViewModel(
                         _state.value = current.copy(scanProcessed = processed, scanTotal = total)
                     }
                 }
-                val cleanedScannedTracks = scan.tracks.map(::cleanTrackMetadata)
+                val cleanedScannedTracks = withContext(Dispatchers.Default) {
+                    scan.tracks.map(::cleanTrackMetadata)
+                }
                 if (scan.tracks.isNotEmpty()) playlistStore.cacheTracks(generation, scan.tracks)
                 if (scan.complete) playlistStore.finishTrackCacheRefresh(generation)
                 val tracks = if (scan.complete || cachedTracks.isEmpty()) cleanedScannedTracks else cachedTracks
                 if (scan.complete || cachedTracks.isEmpty()) rebuildTrackSearchIndex(tracks)
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
-                val availableTracks = tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
                 val favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                 val playHistory = playlistStore.loadPlayHistory()
-                val playlistsWithCounts = withPlaylistCounts(playlists, availableTracks, favoriteUris, playHistory)
                 val resolvedAliases = playlistStore.loadArtistAliases()
-                val notDuplicatePairs = playlistStore.loadNotDuplicatePairs()
-                val artists = buildArtists(availableTracks, resolvedAliases)
-                val albums = buildAlbums(availableTracks, resolvedAliases)
-                val folders = buildFolderItems(availableTracks)
-                val hiddenFolders = buildHiddenFolderItems(tracks, hiddenFolderPaths)
-                val genres = buildGenres(availableTracks)
-                val years = buildYears(availableTracks)
-                val duplicateGroups = buildDuplicateGroups(availableTracks, resolvedAliases, notDuplicatePairs)
+                val derived = deriveLibraryData(tracks, hiddenFolderPaths, resolvedAliases, _state.value)
+                val playlistsWithCounts = withPlaylistCounts(playlists, derived.availableTracks, favoriteUris, playHistory)
                 _state.value = _state.value.copy(
                     tracks = tracks,
                     artistAliases = resolvedAliases,
-                    visibleTracks = filterTracks(availableTracks, _state.value.searchQuery, _state.value.sortOrder, _state.value.hideShortTracks),
-                    artists = artists,
-                    visibleArtists = filterArtists(artists, _state.value.searchQuery),
-                    albums = albums,
-                    visibleAlbums = filterAlbums(albums, _state.value.searchQuery),
+                    visibleTracks = derived.visibleTracks,
+                    artists = derived.artists,
+                    visibleArtists = derived.visibleArtists,
+                    albums = derived.albums,
+                    visibleAlbums = derived.visibleAlbums,
                     playlists = playlistsWithCounts,
                     favoriteUris = favoriteUris,
                     playHistory = playHistory,
-                    folders = folders,
+                    folders = derived.folders,
                     hiddenFolderPaths = hiddenFolderPaths,
-                    visibleFolders = filterCollections(folders, _state.value.searchQuery),
-                    hiddenFolders = hiddenFolders,
-                    visibleHiddenFolders = filterCollections(hiddenFolders, _state.value.searchQuery),
-                    genres = genres,
-                    visibleGenres = filterCollections(genres, _state.value.searchQuery),
-                    years = years,
-                    visibleYears = filterCollections(years, _state.value.searchQuery),
-                    duplicateGroups = duplicateGroups,
-                    visibleDuplicateGroups = filterDuplicateGroups(duplicateGroups, _state.value.searchQuery),
+                    visibleFolders = derived.visibleFolders,
+                    hiddenFolders = derived.hiddenFolders,
+                    visibleHiddenFolders = derived.visibleHiddenFolders,
+                    genres = derived.genres,
+                    visibleGenres = derived.visibleGenres,
+                    years = derived.years,
+                    visibleYears = derived.visibleYears,
+                    duplicateGroups = emptyList(),
+                    visibleDuplicateGroups = emptyList(),
+                    duplicateGroupsLoaded = false,
                     visiblePlaylists = filterPlaylists(playlistsWithCounts, _state.value.searchQuery),
                     isLoading = false,
                     scanProcessed = if (scan.complete) tracks.size else _state.value.scanProcessed,
@@ -534,6 +559,9 @@ class LibraryViewModel(
                     permissionRequired = false,
                     message = null,
                 )
+                if (duplicateGroupsRequested || _state.value.category == "Duplicates") {
+                    ensureDuplicateGroupsLoaded()
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: SecurityException) {
@@ -613,16 +641,18 @@ class LibraryViewModel(
         val duplicateGroups: List<DuplicateGroup>,
     )
 
-    private fun rebuildTrackSearchIndex(tracks: List<AudioTrack>) {
-        trackSearchIndex = tracks.associate { track ->
-            val fields = listOf(
-                track.title,
-                track.artist,
-                track.album,
-                track.displayName,
-                track.filePath,
-            ).map(::normalizeLibrarySearchText)
-            track.uri.toString() to TrackSearchDocument(fields.joinToString(" "), fields)
+    private suspend fun rebuildTrackSearchIndex(tracks: List<AudioTrack>) {
+        trackSearchIndex = withContext(Dispatchers.Default) {
+            tracks.associate { track ->
+                val fields = listOf(
+                    track.title,
+                    track.artist,
+                    track.album,
+                    track.displayName,
+                    track.filePath,
+                ).map(::normalizeLibrarySearchText)
+                track.uri.toString() to TrackSearchDocument(fields.joinToString(" "), fields)
+            }
         }
     }
 
@@ -656,11 +686,13 @@ class LibraryViewModel(
                 playlistStore.loadNotDuplicatePairs()
             }.onSuccess { pairs ->
                 val current = _state.value
-                val tracks = availableTracks(current)
-                val duplicates = buildDuplicateGroups(tracks, current.artistAliases, pairs)
+                val duplicates = withContext(Dispatchers.Default) {
+                    buildDuplicateGroups(availableTracks(current), current.artistAliases, pairs)
+                }
                 _state.value = current.copy(
                     duplicateGroups = duplicates,
                     visibleDuplicateGroups = filterDuplicateGroups(duplicates, current.searchQuery),
+                    duplicateGroupsLoaded = true,
                 )
             }.onFailure {
                 _state.value = _state.value.copy(actionMessage = it.message ?: "Could not update duplicate exclusions.")
@@ -670,6 +702,71 @@ class LibraryViewModel(
 
     private fun availableTracks(state: LibraryUiState): List<AudioTrack> =
         state.tracks.filterNot { folderIsHidden(it, state.hiddenFolderPaths) }
+
+    private suspend fun deriveLibraryData(
+        tracks: List<AudioTrack>,
+        hiddenFolderPaths: Set<String>,
+        aliases: Map<String, String>,
+        state: LibraryUiState,
+    ): DerivedLibraryData = withContext(Dispatchers.Default) {
+        val available = tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }
+        val artists = buildArtists(available, aliases)
+        val albums = buildAlbums(available, aliases)
+        val folders = buildFolderItems(available)
+        val hiddenFolders = buildHiddenFolderItems(tracks, hiddenFolderPaths)
+        val genres = buildGenres(available)
+        val years = buildYears(available)
+        DerivedLibraryData(
+            availableTracks = available,
+            artists = artists,
+            visibleArtists = filterArtists(artists, state.searchQuery),
+            albums = albums,
+            visibleAlbums = filterAlbums(albums, state.searchQuery),
+            folders = folders,
+            visibleFolders = filterCollections(folders, state.searchQuery),
+            hiddenFolders = hiddenFolders,
+            visibleHiddenFolders = filterCollections(hiddenFolders, state.searchQuery),
+            genres = genres,
+            visibleGenres = filterCollections(genres, state.searchQuery),
+            years = years,
+            visibleYears = filterCollections(years, state.searchQuery),
+            visibleTracks = filterTracks(
+                available,
+                state.searchQuery,
+                state.sortOrder,
+                state.hideShortTracks,
+                state.sortAscending,
+                state.hideLongTracks,
+                state.hideLongTracksAfterMinutes,
+            ),
+        )
+    }
+
+    fun ensureDuplicateGroupsLoaded() {
+        duplicateGroupsRequested = true
+        val current = _state.value
+        if (current.isLoading || current.duplicateGroupsLoaded || current.tracks.isEmpty()) return
+        duplicateGroupsJob?.cancel()
+        duplicateGroupsJob = viewModelScope.launch {
+            runCatching {
+                val exclusions = playlistStore.loadNotDuplicatePairs()
+                val groups = withContext(Dispatchers.Default) {
+                    buildDuplicateGroups(availableTracks(current), current.artistAliases, exclusions)
+                }
+                groups
+            }.onSuccess { groups ->
+                if (_state.value.tracks === current.tracks) {
+                    _state.value = _state.value.copy(
+                        duplicateGroups = groups,
+                        visibleDuplicateGroups = filterDuplicateGroups(groups, _state.value.searchQuery),
+                        duplicateGroupsLoaded = true,
+                    )
+                }
+            }.onFailure {
+                _state.value = _state.value.copy(actionMessage = it.message ?: "Could not check for duplicate tracks.")
+            }
+        }
+    }
 
     fun setSortOrder(order: String) {
         if (order !in SORT_ORDERS) return
@@ -866,6 +963,7 @@ class LibraryViewModel(
 
     fun selectCategory(category: String) {
         _state.value = _state.value.copy(category = category, browseTitle = null, browseTracks = null, activePlaylist = null, actionMessage = null)
+        if (category == "Duplicates") ensureDuplicateGroupsLoaded()
     }
 
     fun closeGroup() {

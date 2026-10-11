@@ -358,6 +358,7 @@ fun RiftApp(
                 onToggleFolderHidden = { path, hidden, onComplete ->
                     libraryViewModel.setFolderHidden(path, hidden, onComplete)
                 },
+                onEnsureDuplicatesLoaded = libraryViewModel::ensureDuplicateGroupsLoaded,
             )
         }
         }

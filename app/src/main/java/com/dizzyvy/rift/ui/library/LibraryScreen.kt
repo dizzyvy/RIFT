@@ -166,6 +166,7 @@ fun LibraryScreen(
     lyricsDirectoryUri: Uri?,
     onChooseLyricsDirectory: () -> Unit,
     onToggleFolderHidden: (String, Boolean, () -> Unit) -> Unit,
+    onEnsureDuplicatesLoaded: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -308,7 +309,7 @@ fun LibraryScreen(
                     Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                 }
                 IconButton(
-                    onClick = { settingsSheetOpen = true },
+                    onClick = { settingsSheetOpen = true; onEnsureDuplicatesLoaded() },
                     modifier = Modifier.size(48.dp).semantics { contentDescription = "Settings" },
                 ) {
                     Icon(Icons.Default.MoreVert, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
@@ -1136,7 +1137,12 @@ fun LibraryScreen(
                 TextButton(
                     onClick = { settingsSheetOpen = false; onCategory("Duplicates") },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) { Text("Clean up duplicates (${state.duplicateGroups.size})") }
+                ) {
+                    Text(
+                        if (state.duplicateGroupsLoaded) "Clean up duplicates (${state.duplicateGroups.size})"
+                        else "Clean up duplicates",
+                    )
+                }
                 if (state.artistAliases.isNotEmpty()) {
                     Text("Artist name merges", style = MaterialTheme.typography.titleSmall)
                     state.artistAliases.forEach { (alias, canonical) ->
