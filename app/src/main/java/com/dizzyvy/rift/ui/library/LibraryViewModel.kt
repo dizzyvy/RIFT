@@ -18,6 +18,7 @@ import com.dizzyvy.rift.music.library.ArtistBrowseItem
 import com.dizzyvy.rift.music.library.DevicePlaylist
 import com.dizzyvy.rift.music.library.librarySection
 import com.dizzyvy.rift.music.library.isValidLibraryYear
+import com.dizzyvy.rift.music.library.compareNaturalIgnoreCase
 import com.dizzyvy.rift.music.library.sortableTitle
 import com.dizzyvy.rift.music.library.artistGroupKey
 import com.dizzyvy.rift.music.library.artistGroupKeys
@@ -53,7 +54,10 @@ private fun buildFolderItems(tracks: List<AudioTrack>): List<LibraryCollectionIt
     .mapNotNull { track -> folderPath(track).takeIf(String::isNotBlank)?.let { it to track } }
     .groupBy({ it.first }, { it.second })
     .map { (path, items) -> LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, items.size) }
-    .sortedWith(compareBy<LibraryCollectionItem, String>(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.id })
+    .sortedWith(Comparator { first, second ->
+        compareNaturalIgnoreCase(first.title, second.title).takeIf { it != 0 }
+            ?: compareNaturalIgnoreCase(first.id, second.id)
+    })
 
 private fun buildHiddenFolderItems(tracks: List<AudioTrack>, hiddenPaths: Set<String>): List<LibraryCollectionItem> =
     hiddenPaths.map { path ->
@@ -62,7 +66,10 @@ private fun buildHiddenFolderItems(tracks: List<AudioTrack>, hiddenPaths: Set<St
             trackPath.equals(path, ignoreCase = true) || trackPath.startsWith("$path/", ignoreCase = true)
         }
         LibraryCollectionItem(path, path.substringAfterLast('/').ifBlank { path }, path, matchingTracks.size)
-    }.sortedWith(compareBy<LibraryCollectionItem, String>(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.id })
+    }.sortedWith(Comparator { first, second ->
+        compareNaturalIgnoreCase(first.title, second.title).takeIf { it != 0 }
+            ?: compareNaturalIgnoreCase(first.id, second.id)
+    })
 
 private fun buildArtists(tracks: List<AudioTrack>, aliases: Map<String, String> = emptyMap()): List<ArtistBrowseItem> = tracks
     .flatMap { track -> artistNamesForTrack(track, aliases).map { it to track } }
@@ -114,12 +121,33 @@ private fun preferredArtworkTrack(tracks: List<AudioTrack>): AudioTrack =
 
 data class DuplicateGroup(val id: String, val tracks: List<AudioTrack>, val reason: String)
 
-private fun buildDuplicateGroups(
+internal fun recommendedDuplicateCopy(tracks: List<AudioTrack>): AudioTrack? =
+    tracks.maxWithOrNull(
+        compareBy<AudioTrack> { it.bitrate }
+            .thenBy { it.sizeBytes }
+            .thenBy { it.dateAddedSeconds }
+            .thenBy { it.dateModifiedSeconds }
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.uri.toString() },
+    )
+
+internal fun reclaimableDuplicateBytes(group: DuplicateGroup): Long {
+    val bestUri = recommendedDuplicateCopy(group.tracks)?.uri
+    return group.tracks.asSequence()
+        .filterNot { it.uri == bestUri }
+        .sumOf { it.sizeBytes.coerceAtLeast(0L) }
+}
+
+internal fun buildDuplicateGroups(
     tracks: List<AudioTrack>,
     aliases: Map<String, String>,
     notDuplicatePairs: Set<String>,
 ): List<DuplicateGroup> {
-    val matches = mutableListOf<Triple<AudioTrack, AudioTrack, String>>()
+    val matches = mutableMapOf<String, Triple<AudioTrack, AudioTrack, String>>()
+    fun addMatch(first: AudioTrack, second: AudioTrack, reason: String) {
+        val key = duplicatePairKey(first.uri.toString(), second.uri.toString())
+        if (key !in notDuplicatePairs) matches.putIfAbsent(key, Triple(first, second, reason))
+    }
+
     val candidates = tracks.groupBy { track ->
         val compactTitle = track.title.lowercase().filter(Char::isLetterOrDigit)
         normalizeArtistName(artistNamesForTrack(track, aliases).first()) to compactTitle
@@ -140,16 +168,31 @@ private fun buildDuplicateGroups(
                     sameFileSize -> "Similar title and artist; duration and file size match"
                     else -> null
                 } ?: continue
-                if (duplicatePairKey(first.uri.toString(), second.uri.toString()) !in notDuplicatePairs) {
-                    matches += Triple(first, second, reason)
-                }
+                addMatch(first, second, reason)
             }
         }
     }
 
+    tracks.asSequence()
+        .filter { it.sizeBytes > 0L && it.durationMs > 0L }
+        .groupBy(AudioTrack::sizeBytes)
+        .values
+        .forEach { sameSize ->
+            val byDuration = sameSize.sortedBy(AudioTrack::durationMs)
+            for (firstIndex in byDuration.indices) {
+                val first = byDuration[firstIndex]
+                for (secondIndex in firstIndex + 1 until byDuration.size) {
+                    val second = byDuration[secondIndex]
+                    if (second.durationMs - first.durationMs > 1_000L) break
+                    if (first.title.trim().equals(second.title.trim(), ignoreCase = true)) continue
+                    addMatch(first, second, "Identical file size and duration")
+                }
+            }
+        }
+
     val adjacency = mutableMapOf<String, MutableSet<String>>()
     val reasonsByPair = mutableMapOf<String, String>()
-    matches.forEach { (first, second, reason) ->
+    matches.values.forEach { (first, second, reason) ->
         val firstUri = first.uri.toString()
         val secondUri = second.uri.toString()
         adjacency.getOrPut(firstUri) { mutableSetOf() }.add(secondUri)
@@ -185,7 +228,11 @@ private fun buildDuplicateGroups(
                 ),
             )
         }
-    }.sortedWith(compareBy<DuplicateGroup, String>(String.CASE_INSENSITIVE_ORDER) { it.tracks.first().title }.thenBy { it.id })
+    }.sortedWith(
+        compareByDescending<DuplicateGroup> { reclaimableDuplicateBytes(it) }
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.tracks.first().title }
+            .thenBy { it.id },
+    )
 }
 
 private fun filterDuplicateGroups(groups: List<DuplicateGroup>, query: String): List<DuplicateGroup> =

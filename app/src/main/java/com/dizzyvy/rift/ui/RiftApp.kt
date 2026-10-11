@@ -86,6 +86,13 @@ fun RiftApp(
     var pendingBackupText by remember { mutableStateOf("") }
     var pendingDeleteUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var continuePendingDelete by remember { mutableIntStateOf(0) }
+    fun removeDeletedTracksFromQueue(uris: List<Uri>) {
+        val deleted = uris.toSet()
+        playback.queue.indices
+            .filter { playback.queue[it].uri in deleted }
+            .asReversed()
+            .forEach(playbackController::removeQueueItem)
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
         if (uri != null) runCatching {
             val output = requireNotNull(context.contentResolver.openOutputStream(uri))
@@ -95,13 +102,18 @@ fun RiftApp(
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         val queuedUris = pendingDeleteUris
         pendingDeleteUris = emptyList()
-        if (result.resultCode == Activity.RESULT_OK && Build.VERSION.SDK_INT < Build.VERSION_CODES.R && queuedUris.isNotEmpty()) {
-            runCatching { context.contentResolver.delete(queuedUris.first(), null, null) }
-                .onSuccess {
-                    pendingDeleteUris = queuedUris.drop(1)
-                    continuePendingDelete += 1
-                }
-                .onFailure { libraryViewModel.reportActionError(it.message ?: "Could not delete this song.") }
+        if (result.resultCode == Activity.RESULT_OK) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R && queuedUris.isNotEmpty()) {
+                runCatching { context.contentResolver.delete(queuedUris.first(), null, null) }
+                    .onSuccess {
+                        removeDeletedTracksFromQueue(listOf(queuedUris.first()))
+                        pendingDeleteUris = queuedUris.drop(1)
+                        continuePendingDelete += 1
+                    }
+                    .onFailure { libraryViewModel.reportActionError(it.message ?: "Could not delete this song.") }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                removeDeletedTracksFromQueue(queuedUris)
+            }
         }
         libraryViewModel.loadLibrary(hasAudioPermission, forceRefresh = true)
     }
@@ -119,6 +131,7 @@ fun RiftApp(
             val uri = remaining.first()
             try {
                 context.contentResolver.delete(uri, null, null)
+                removeDeletedTracksFromQueue(listOf(uri))
                 remaining.removeAt(0)
             } catch (recoverable: RecoverableSecurityException) {
                 pendingDeleteUris = remaining.toList()

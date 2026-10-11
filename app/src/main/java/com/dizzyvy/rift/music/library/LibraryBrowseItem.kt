@@ -30,6 +30,40 @@ fun librarySection(title: String): Char = sortableTitle(title).firstOrNull()
     ?.takeIf { it in 'A'..'Z' }
     ?: '#'
 
+fun compareNaturalIgnoreCase(first: String, second: String): Int {
+    var firstIndex = 0
+    var secondIndex = 0
+    while (firstIndex < first.length && secondIndex < second.length) {
+        val firstChar = first[firstIndex]
+        val secondChar = second[secondIndex]
+        if (firstChar.isDigit() && secondChar.isDigit()) {
+            val firstEnd = firstIndex + first.substring(firstIndex).takeWhile(Char::isDigit).length
+            val secondEnd = secondIndex + second.substring(secondIndex).takeWhile(Char::isDigit).length
+            val firstDigits = first.substring(firstIndex, firstEnd).dropWhile { it == '0' }.ifEmpty { "0" }
+            val secondDigits = second.substring(secondIndex, secondEnd).dropWhile { it == '0' }.ifEmpty { "0" }
+            val numberOrder = firstDigits.length.compareTo(secondDigits.length)
+                .takeIf { it != 0 }
+                ?: firstDigits.compareTo(secondDigits)
+            if (numberOrder != 0) return numberOrder
+            val leadingZeroOrder = (firstEnd - firstIndex).compareTo(secondEnd - secondIndex)
+            if (leadingZeroOrder != 0) return leadingZeroOrder
+            firstIndex = firstEnd
+            secondIndex = secondEnd
+        } else {
+            val charOrder = firstChar.lowercaseChar().compareTo(secondChar.lowercaseChar())
+            if (charOrder != 0) return charOrder
+            firstIndex++
+            secondIndex++
+        }
+    }
+    return when {
+        firstIndex == first.length && secondIndex == second.length -> 0
+        firstIndex == first.length -> -1
+        secondIndex == second.length -> 1
+        else -> (first.length - firstIndex).compareTo(second.length - secondIndex)
+    }
+}
+
 fun isValidLibraryYear(year: Int): Boolean =
     year in 1900..(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) + 1)
 

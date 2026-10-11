@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.animation.core.RepeatMode
@@ -182,6 +184,7 @@ fun LibraryScreen(
     val tabBounds = remember { mutableStateMapOf<String, Pair<Float, Float>>() }
     var pendingTracks by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
     var selectedUris by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeleteSelectionConfirmation by remember { mutableStateOf(false) }
     var showAddSheet by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var tracksToAddOnCreate by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
@@ -192,10 +195,13 @@ fun LibraryScreen(
     var folderToHide by remember { mutableStateOf<String?>(null) }
     var showingHiddenFolders by remember { mutableStateOf(false) }
     var pendingDuplicateAction by remember { mutableStateOf<PendingDuplicateAction?>(null) }
+    var pendingBulkDuplicateDelete by remember { mutableStateOf<List<AudioTrack>?>(null) }
     var artistToMerge by remember { mutableStateOf<ArtistBrowseItem?>(null) }
     var artistAliasInput by remember { mutableStateOf("") }
     val songs = state.browseTracks ?: state.visibleTracks
-    val selectedTracks = songs.filter { it.uri.toString() in selectedUris }
+    val selectedTracks = remember(songs, selectedUris) {
+        songs.filter { it.uri.toString() in selectedUris }
+    }
     BackHandler(enabled = selectedUris.isNotEmpty() || state.searchQuery.isNotEmpty()) {
         if (selectedUris.isNotEmpty()) {
             selectedUris = emptySet()
@@ -356,10 +362,39 @@ fun LibraryScreen(
                 }
             }
             if (selectedTracks.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("${selectedTracks.size} selected", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                    TextButton(onClick = { pendingTracks = selectedTracks; showAddSheet = true }) { Text("Add to playlist") }
-                    TextButton(onClick = { selectedUris = emptySet() }) { Text("Clear") }
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("${selectedTracks.size} selected", style = MaterialTheme.typography.labelLarge)
+                    TextButton(
+                        onClick = {
+                            selectedUris = if (selectedTracks.size == songs.size) emptySet()
+                            else songs.mapTo(mutableSetOf()) { it.uri.toString() }
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text(if (selectedTracks.size == songs.size) "Deselect all" else "Select all") }
+                    TextButton(
+                        onClick = { onPlayNext(selectedTracks); selectedUris = emptySet() },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Play next") }
+                    TextButton(
+                        onClick = { selectedTracks.forEach(onAddToQueue); selectedUris = emptySet() },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Add to queue") }
+                    TextButton(
+                        onClick = { pendingTracks = selectedTracks; showAddSheet = true },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Add to playlist") }
+                    TextButton(
+                        onClick = { showDeleteSelectionConfirmation = true },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Delete") }
+                    IconButton(
+                        onClick = { selectedUris = emptySet() },
+                        modifier = Modifier.size(48.dp).semantics { contentDescription = "Exit selection mode" },
+                    ) { Icon(Icons.Default.Close, contentDescription = null) }
                 }
             }
             if (state.category in listOf("Songs", "Artists", "Albums", "Playlists", "Folders", "Genres", "Years", "Duplicates", "Search") &&
@@ -508,7 +543,7 @@ fun LibraryScreen(
                             onExportM3u = onExportM3u,
                         )
                         state.browseTitle != null -> {
-                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 itemsIndexed(songs, key = { _, track -> track.uri.toString() }) { index, track ->
                                     TrackRow(
                                         track = track,
@@ -542,7 +577,7 @@ fun LibraryScreen(
                             }
                         }
                         state.category == "Artists" -> Box(Modifier.fillMaxSize()) {
-                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp)) {
                                 items(state.visibleArtists, key = { it.id }) { item ->
                                     val aliasesForArtist = state.artistAliases.filterValues { canonical ->
                                         normalizeArtistName(resolveArtistAlias(canonical, state.artistAliases)) == item.id
@@ -604,9 +639,36 @@ fun LibraryScreen(
                                 }
                             }
                         }
-                        state.category == "Duplicates" -> LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            item { Text("${countLabel(state.visibleDuplicateGroups.size, "group").uppercase()}", Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        state.category == "Duplicates" -> LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            val lowerQualityTracks = state.visibleDuplicateGroups
+                                .flatMap { group ->
+                                    val best = recommendedDuplicateCopy(group)
+                                    group.tracks.filterNot { it.uri == best?.uri }
+                                }
+                                .distinctBy { it.uri }
+                            val reclaimableBytes = state.visibleDuplicateGroups.sumOf(::reclaimableDuplicateBytes)
+                            item {
+                                Column(Modifier.fillMaxWidth().padding(start = 5.dp, top = 7.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        "${state.visibleDuplicateGroups.size} groups · ~${formatAudioSize(reclaimableBytes)} reclaimable",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (lowerQualityTracks.isNotEmpty()) {
+                                        Button(
+                                            onClick = { pendingBulkDuplicateDelete = lowerQualityTracks },
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                        ) {
+                                            Text("Remove ${lowerQualityTracks.size} lower-quality copies (frees ~${formatAudioSize(reclaimableBytes)})")
+                                        }
+                                    }
+                                }
+                            }
                             items(state.visibleDuplicateGroups, key = { "duplicate-group:${it.id}" }) { group ->
+                                var menuOpen by remember(group.id) { mutableStateOf(false) }
+                                var fullPathTrack by remember(group.id) { mutableStateOf<AudioTrack?>(null) }
+                                val bestCopy = recommendedDuplicateCopy(group.tracks)
+                                val groupReclaimableBytes = reclaimableDuplicateBytes(group)
                                 Column(
                                     Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
@@ -615,35 +677,79 @@ fun LibraryScreen(
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
-                                            Text(group.tracks.first().title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                            Text("${countLabel(group.tracks.size, "track")} in this group", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(group.tracks.first().title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("${group.tracks.size} copies · can free ~${formatAudioSize(groupReclaimableBytes)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
-                                        TextButton(onClick = { pendingDuplicateAction = PendingDuplicateAction.NotDuplicate(group) }) {
-                                            Text("Not a duplicate")
+                                        Box {
+                                            IconButton(
+                                                onClick = { menuOpen = true },
+                                                modifier = Modifier.size(48.dp).semantics { contentDescription = "Duplicate group actions" },
+                                            ) { Icon(Icons.Default.MoreVert, contentDescription = null) }
+                                            DropdownMenu(
+                                                expanded = menuOpen,
+                                                onDismissRequest = { menuOpen = false },
+                                                containerColor = MaterialTheme.colorScheme.surface,
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("Not a duplicate") },
+                                                    onClick = {
+                                                        menuOpen = false
+                                                        pendingDuplicateAction = PendingDuplicateAction.NotDuplicate(group)
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
-                                    Text("Matched because: ${group.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(group.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     group.tracks.forEach { track ->
                                         Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                            Text(track.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                            Text(track.filePath.ifBlank { track.uri.toString() }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             Text(
-                                                "Size ${formatAudioSize(track.sizeBytes)} · ${if (track.bitrate > 0) "${track.bitrate} kbps" else "Unknown bitrate"} · ${formatTime(track.durationMs)} · ${formatTrackDate(track.dateAddedSeconds)}",
+                                                "${track.title} · ${track.mimeType.substringAfter('/', "").uppercase().ifBlank { track.displayName.substringAfterLast('.', "").uppercase().ifBlank { "Unknown format" } }} · ${if (track.bitrate > 0) "${track.bitrate} kbps" else "Unknown bitrate"} · ${formatAudioSize(track.sizeBytes)} · ${formatTime(track.durationMs)} · ${formatTrackDate(track.dateAddedSeconds)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                            if (track.uri == bestCopy?.uri) {
+                                                Text("Best quality", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                            }
+                                            val shortPath = track.filePath.replace('\\', '/').split('/').filter(String::isNotBlank).takeLast(2).joinToString("/")
+                                            Text(
+                                                shortPath.ifBlank { track.uri.toString() },
+                                                Modifier.combinedClickable(
+                                                    onClick = {},
+                                                    onLongClick = { fullPathTrack = track },
+                                                ),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.MiddleEllipsis,
                                             )
                                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                TextButton(onClick = { pendingDuplicateAction = PendingDuplicateAction.Keep(group, track) }) { Text("Keep") }
-                                                TextButton(onClick = { pendingDuplicateAction = PendingDuplicateAction.Delete(group, track) }) { Text("Delete") }
+                                                Button(
+                                                    onClick = { pendingDuplicateAction = PendingDuplicateAction.Keep(group, track) },
+                                                    modifier = Modifier.heightIn(min = 48.dp),
+                                                ) { Text("Keep this one") }
+                                                OutlinedButton(
+                                                    onClick = { pendingDuplicateAction = PendingDuplicateAction.Delete(group, track) },
+                                                    modifier = Modifier.heightIn(min = 48.dp),
+                                                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                                ) { Text("Delete this one") }
                                             }
                                         }
                                         if (track != group.tracks.last()) HorizontalDivider()
                                     }
                                 }
+                                fullPathTrack?.let { selectedTrack ->
+                                    AlertDialog(
+                                        onDismissRequest = { fullPathTrack = null },
+                                        title = { ShrikhandHeading("File location", MaterialTheme.typography.headlineSmall) },
+                                        text = { Text(selectedTrack.filePath.ifBlank { selectedTrack.uri.toString() }) },
+                                        confirmButton = { TextButton(onClick = { fullPathTrack = null }) { Text("Done") } },
+                                    )
+                                }
                             }
                         }
                         state.category == "Albums" -> Box(Modifier.fillMaxSize()) {
-                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp)) {
                                 items(state.visibleAlbums, key = { it.id }) { item ->
                                     val year = item.year.takeIf(::isValidLibraryYear)?.let { " · $it" }.orEmpty()
                                     BrowseRow(
@@ -662,7 +768,7 @@ fun LibraryScreen(
                         state.category == "Playlists" -> {
                             val smartPlaylists = state.visiblePlaylists.filter(DevicePlaylist::isAuto)
                             val userPlaylists = state.visiblePlaylists.filterNot(DevicePlaylist::isAuto)
-                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp)) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp)) {
                                 if (smartPlaylists.isNotEmpty()) {
                                     item(key = "smart-playlist-header") {
                                         Text("Smart playlists", Modifier.padding(start = 8.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -697,7 +803,7 @@ fun LibraryScreen(
                         }
                         else -> {
                             val headerCount = 2
-                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 item { Text(countLabel(songs.size, "song").uppercase(), Modifier.padding(start = 5.dp, top = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 item {
                                     Row(
@@ -836,6 +942,51 @@ fun LibraryScreen(
                 }
             },
             dismissButton = { TextButton(onClick = { pendingDuplicateAction = null }) { Text("Cancel") } },
+        )
+    }
+    pendingBulkDuplicateDelete?.let { tracks ->
+        AlertDialog(
+            onDismissRequest = { pendingBulkDuplicateDelete = null },
+            title = { ShrikhandHeading("Remove lower-quality copies?", MaterialTheme.typography.headlineSmall) },
+            text = {
+                Text("Delete ${tracks.size} lower-quality copies (${formatAudioSize(tracks.sumOf { it.sizeBytes.coerceAtLeast(0L) })}) from this device? This cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteTracks(tracks)
+                        pendingBulkDuplicateDelete = null
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Review and delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBulkDuplicateDelete = null }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+    if (showDeleteSelectionConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectionConfirmation = false },
+            title = { ShrikhandHeading("Delete selected songs?", MaterialTheme.typography.headlineSmall) },
+            text = { Text("Delete ${selectedTracks.size} selected songs from this device? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteTracks(selectedTracks)
+                        selectedUris = emptySet()
+                        showDeleteSelectionConfirmation = false
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectionConfirmation = false }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Cancel")
+                }
+            },
         )
     }
     artistToMerge?.let { artist ->
@@ -1126,7 +1277,7 @@ private fun FolderList(
     onUnhide: (LibraryCollectionItem) -> Unit,
     onOpen: (LibraryCollectionItem) -> Unit,
 ) {
-    LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         items(items, key = { "folder:${it.id}" }) { item ->
             var menuOpen by remember(item.id) { mutableStateOf(false) }
             Row(
@@ -1147,6 +1298,9 @@ private fun FolderList(
                     val parentPath = item.id.substringBeforeLast('/', "Root").ifBlank { "Root" }
                     Text(parentPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
                     Text(countLabel(item.trackCount, "song"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (hidden) {
+                        Text("Subfolders are hidden too", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 Box {
                     IconButton(
@@ -1182,7 +1336,7 @@ private fun CollectionList(
     listState: androidx.compose.foundation.lazy.LazyListState,
     onOpen: (LibraryCollectionItem) -> Unit,
 ) {
-    LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         items(items, key = { it.id }) { item ->
             val subtitle = when {
                 item.subtitle == "Year" -> countLabel(item.trackCount, "song")
@@ -1218,7 +1372,7 @@ private fun SearchResults(
     onRequestDelete: (DevicePlaylist) -> Unit,
     onExportM3u: (DevicePlaylist) -> Unit,
 ) {
-    LazyColumn(state = listState, contentPadding = PaddingValues(end = 8.dp, bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    LazyColumn(state = listState, contentPadding = PaddingValues(end = 8.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         if (tracks.isNotEmpty()) {
             item { Text("SONGS · ${tracks.size}", Modifier.padding(start = 5.dp, top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(tracks, key = { "search-song:${it.uri}" }) { track ->
@@ -1547,30 +1701,45 @@ fun MiniPlayer(playback: PlaybackSnapshot, artworkRepository: ArtworkRepository,
     val track = playback.currentTrack ?: return
     val playerShape = RoundedCornerShape(18.dp)
     var horizontalDrag by remember(track.uri) { mutableStateOf(0f) }
-    Surface(modifier.fillMaxWidth().clip(playerShape).pointerInput(track.uri) {
-        detectHorizontalDragGestures(
-            onDragEnd = {
-                if (horizontalDrag > 48f) onNext()
-                else if (horizontalDrag < -48f) onPrevious()
-                horizontalDrag = 0f
+    Surface(
+        modifier.fillMaxWidth().clip(playerShape)
+            .graphicsLayer { translationX = horizontalDrag.coerceIn(-48f, 48f) }
+            .pointerInput(track.uri) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (horizontalDrag > 48f) onNext()
+                        else if (horizontalDrag < -48f) onPrevious()
+                        horizontalDrag = 0f
+                    },
+                    onHorizontalDrag = { change, amount -> change.consume(); horizontalDrag += amount },
+                )
             },
-            onHorizontalDrag = { change, amount -> change.consume(); horizontalDrag += amount },
-        )
-    }, color = MaterialTheme.colorScheme.surface, shape = playerShape, tonalElevation = 4.dp) {
+        color = MaterialTheme.colorScheme.surface,
+        shape = playerShape,
+        tonalElevation = 4.dp,
+    ) {
         Column {
             Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
                     AlbumTile(track, artworkRepository, Modifier.size(46.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(track.title, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                        Text(track.title, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                         Text(displayValue(track.artist, "Unknown artist"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
                 }
+                IconButton(
+                    onClick = onPrevious,
+                    modifier = Modifier.size(48.dp).semantics { contentDescription = "Previous track" },
+                ) { Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                 IconButton(onClick = onPlayPause, modifier = Modifier.size(48.dp).semantics {
                     contentDescription = if (playback.isPlaying) "Pause playback" else "Resume playback"
                 }) {
                     Icon(if (playback.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 }
+                IconButton(
+                    onClick = onNext,
+                    modifier = Modifier.size(48.dp).semantics { contentDescription = "Next track" },
+                ) { Icon(Icons.Default.SkipNext, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             LinearProgressIndicator(
                 progress = { if (playback.durationMs > 0L) (playback.positionMs.toFloat() / playback.durationMs.toFloat()).coerceIn(0f, 1f) else 0f },
