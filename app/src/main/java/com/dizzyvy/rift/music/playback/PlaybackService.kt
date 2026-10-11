@@ -1,8 +1,10 @@
 package com.dizzyvy.rift.music.playback
 
 import android.net.Uri
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.media3.common.AudioAttributes
@@ -20,6 +22,8 @@ import com.google.common.util.concurrent.SettableFuture
 import com.dizzyvy.rift.music.library.SqlitePlaylistStore
 import java.util.concurrent.Executors
 
+internal const val ACTION_PLAY_HISTORY_UPDATED = "com.dizzyvy.rift.action.PLAY_HISTORY_UPDATED"
+
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     private data class SavedQueueEntry(
@@ -33,6 +37,8 @@ class PlaybackService : MediaSessionService() {
     private val handler = Handler(Looper.getMainLooper())
     private val playbackIo = Executors.newSingleThreadExecutor()
     private val playbackStore by lazy { SqlitePlaylistStore(applicationContext) }
+    private val historyTracker = PlaybackHistoryTracker()
+    private var pendingMediaItemTransitionReason: Int? = null
     @Volatile private var destroyed = false
     @Volatile private var savedQueueJson = "[]"
     private val checkpoint = object : Runnable {
@@ -42,8 +48,24 @@ class PlaybackService : MediaSessionService() {
         }
     }
     private val playerListener = object : androidx.media3.common.Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            pendingMediaItemTransitionReason = reason
+        }
+
         override fun onEvents(player: androidx.media3.common.Player, events: androidx.media3.common.Player.Events) {
-            if (!destroyed) savePlaybackState(events.contains(Player.EVENT_TIMELINE_CHANGED))
+            if (!destroyed) {
+                val mediaItemTransition = events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)
+                val transitionReason = if (mediaItemTransition) pendingMediaItemTransitionReason else null
+                pendingMediaItemTransitionReason = null
+                recordPlayIfStarted(
+                    player,
+                    mediaItemTransition,
+                    repeatOneLoop = mediaItemTransition &&
+                        transitionReason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
+                        player.repeatMode == Player.REPEAT_MODE_ONE,
+                )
+                savePlaybackState(events.contains(Player.EVENT_TIMELINE_CHANGED))
+            }
         }
     }
 
@@ -102,6 +124,33 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    private fun recordPlayIfStarted(
+        player: Player,
+        mediaItemTransition: Boolean,
+        repeatOneLoop: Boolean,
+    ) {
+        val uri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        val startedUri = historyTracker.onPlaybackState(
+            uri = uri,
+            isPlaying = player.isPlaying,
+            mediaItemTransition = mediaItemTransition,
+            repeatOneLoop = repeatOneLoop,
+            stopped = player.playbackState == Player.STATE_IDLE,
+        ) ?: return
+        val playedAtMs = System.currentTimeMillis()
+        playbackIo.execute {
+            try {
+                playbackStore.recordPlaySync(Uri.parse(startedUri), playedAtMs)
+                sendBroadcast(
+                    Intent(ACTION_PLAY_HISTORY_UPDATED)
+                        .setPackage(packageName),
+                )
+            } catch (exception: Exception) {
+                Log.e(TAG, "Could not save play history for $startedUri", exception)
+            }
+        }
+    }
 
     override fun onDestroy() {
         destroyed = true

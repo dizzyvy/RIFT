@@ -2,8 +2,11 @@ package com.dizzyvy.rift.music.library
 
 import android.net.Uri
 import com.dizzyvy.rift.music.model.AudioTrack
+import com.dizzyvy.rift.music.playback.PlaybackHistoryTracker
 import com.dizzyvy.rift.ui.library.buildDuplicateGroups
 import com.dizzyvy.rift.ui.library.normalizeLibrarySearchText
+import com.dizzyvy.rift.ui.library.selectedTracksInLibraryOrder
+import com.dizzyvy.rift.ui.library.shouldReuseCachedTracks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -77,6 +80,76 @@ class LibraryRulesTest {
         assertEquals(1, groups.size)
         assertEquals(2, groups.single().tracks.size)
         assertTrue(excluded.isEmpty())
+    }
+
+    @Test
+    fun playbackHistoryStartsImmediatelyAndIgnoresProgressAndPauseResume() {
+        val tracker = PlaybackHistoryTracker()
+
+        assertEquals(null, tracker.onPlaybackState("content://media/audio/1", isPlaying = false))
+        assertEquals("content://media/audio/1", tracker.onPlaybackState("content://media/audio/1", isPlaying = true))
+        assertEquals(null, tracker.onPlaybackState("content://media/audio/1", isPlaying = true))
+        assertEquals(null, tracker.onPlaybackState("content://media/audio/1", isPlaying = false))
+        assertEquals(null, tracker.onPlaybackState("content://media/audio/1", isPlaying = true))
+    }
+
+    @Test
+    fun playbackHistoryRecordsSameUriAgainAfterPlaybackStops() {
+        val tracker = PlaybackHistoryTracker()
+
+        assertEquals("track-a", tracker.onPlaybackState("track-a", isPlaying = true))
+        assertEquals(null, tracker.onPlaybackState("track-a", isPlaying = false, stopped = true))
+        assertEquals("track-a", tracker.onPlaybackState("track-a", isPlaying = true))
+    }
+
+    @Test
+    fun playbackHistoryRecordsConsecutiveQueueEntriesWithSameUri() {
+        val tracker = PlaybackHistoryTracker()
+
+        assertEquals("track-a", tracker.onPlaybackState("track-a", isPlaying = true))
+        assertEquals(
+            "track-a",
+            tracker.onPlaybackState("track-a", isPlaying = true, mediaItemTransition = true),
+        )
+        assertEquals(null, tracker.onPlaybackState("track-a", isPlaying = true))
+    }
+
+    @Test
+    fun playbackHistoryDoesNotCountRepeatOneTransitionsOrProgressUpdates() {
+        val tracker = PlaybackHistoryTracker()
+
+        assertEquals("track-a", tracker.onPlaybackState("track-a", isPlaying = true))
+        assertEquals(
+            null,
+            tracker.onPlaybackState(
+                "track-a",
+                isPlaying = true,
+                mediaItemTransition = true,
+                repeatOneLoop = true,
+            ),
+        )
+        assertEquals(null, tracker.onPlaybackState("track-a", isPlaying = true))
+    }
+
+    @Test
+    fun selectedTracksPreserveVisibleLibraryOrder() {
+        val first = track(1L, "content://media/audio/1", 1_000L)
+        val second = track(2L, "content://media/audio/2", 1_000L)
+        val third = track(3L, "content://media/audio/3", 1_000L)
+
+        assertEquals(
+            listOf(first, third),
+            selectedTracksInLibraryOrder(listOf(first, second, third), setOf(third.uri.toString(), first.uri.toString())),
+        )
+    }
+
+    @Test
+    fun cachedLibraryIsReusedOnlyForMatchingKnownMediaStoreVersions() {
+        assertTrue(shouldReuseCachedTracks(true, "version-a", "version-a"))
+        assertFalse(shouldReuseCachedTracks(false, "version-a", "version-a"))
+        assertFalse(shouldReuseCachedTracks(true, "version-a", "version-b"))
+        assertFalse(shouldReuseCachedTracks(true, "legacy", "legacy"))
+        assertFalse(shouldReuseCachedTracks(true, "unknown", "unknown"))
     }
 
     private fun track(

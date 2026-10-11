@@ -36,14 +36,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 import java.text.Normalizer
 import java.util.Locale
+
+internal fun shouldReuseCachedTracks(
+    cachedTracksPresent: Boolean,
+    cachedVersion: String?,
+    currentVersion: String,
+): Boolean = cachedTracksPresent &&
+    currentVersion.isNotBlank() &&
+    currentVersion != "unknown" &&
+    currentVersion != "legacy" &&
+    cachedVersion == currentVersion
 
 private val searchCombiningMarks = Regex("\\p{M}+")
 private val searchPunctuation = Regex("[^\\p{L}\\p{N}\\s]")
@@ -356,14 +364,21 @@ class LibraryViewModel(
     private val _state = MutableStateFlow(LibraryUiState())
     private var refreshAfterCurrentLoad = false
     private var searchJob: Job? = null
+    private var visibleTracksJob: Job? = null
+    private var searchResultsRequestId = 0L
+    private var visibleTracksRequestId = 0L
     private var duplicateGroupsJob: Job? = null
     private var duplicateGroupsRequested = false
+    private var lastMediaStoreVersion: String? = null
+    private var mediaStoreVersionLoaded = false
     private var trackSearchIndex: Map<String, TrackSearchDocument> = emptyMap()
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
     init {
         viewModelScope.launch {
             runCatching { playlistStore.loadSettings() }.onSuccess { settings ->
+                lastMediaStoreVersion = settings[SETTING_MEDIA_STORE_VERSION]
+                mediaStoreVersionLoaded = true
                 val current = _state.value
                 val sortOrder = settings[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: current.sortOrder
                 val sortAscending = settings[SETTING_SORT_ASCENDING]?.toBooleanStrictOrNull() ?: (sortOrder != "Date added")
@@ -382,59 +397,10 @@ class LibraryViewModel(
                     clickWheelSensitivity = wheelSensitivity,
                     clickWheelHaptics = wheelHaptics,
                     lyricsTreeUri = settings[SETTING_LYRICS_TREE],
-                    visibleTracks = filterTracks(availableTracks(current), current.searchQuery, sortOrder, hideShortTracks, sortAscending, hideLongTracks, hideLongTracksAfterMinutes),
                 )
+                scheduleVisibleTrackFilter()
             }
         }
-        viewModelScope.launch {
-        var currentUri: String? = null
-        var listenedMs = 0L
-        var lastPositionMs = 0L
-        var wasPlaying = false
-        var countedCurrentPlay = false
-        playback.snapshot.collect { snapshot ->
-            val track = snapshot.currentTrack
-            val uri = track?.uri?.toString()
-            if (uri != currentUri) {
-                currentUri = uri
-                listenedMs = 0L
-                countedCurrentPlay = false
-                lastPositionMs = snapshot.positionMs
-            } else {
-                val positionDelta = snapshot.positionMs - lastPositionMs
-                if (snapshot.isPlaying && wasPlaying && positionDelta in 0L..5_000L) {
-                    listenedMs += positionDelta
-                }
-                lastPositionMs = snapshot.positionMs
-            }
-            wasPlaying = snapshot.isPlaying
-            if (track == null || countedCurrentPlay) return@collect
-            val knownDuration = _state.value.tracks.firstOrNull { it.uri == track.uri }?.durationMs
-                ?.takeIf { it > 0L } ?: track.durationMs
-            val thresholdMs = knownDuration.takeIf { it > 0L }
-                ?.let { minOf(30_000L, (it + 1L) / 2L) } ?: 30_000L
-            if (listenedMs < thresholdMs) return@collect
-            countedCurrentPlay = true
-            val playedAtMs = System.currentTimeMillis()
-            runCatching {
-                playlistStore.recordPlay(track.uri, playedAtMs)
-                val history = playlistStore.loadPlayHistory()
-                val current = _state.value
-                val active = current.activePlaylist
-                val browseTracks = if (active?.isAuto == true && active.autoKind != "favorites") {
-                    automaticPlaylistTracks(active, availableTracks(current), history)
-                } else current.browseTracks
-                val playlists = withPlaylistCounts(current.playlists, availableTracks(current), current.favoriteUris, history)
-                _state.value = current.copy(
-                    playHistory = history,
-                    browseTracks = browseTracks,
-                    playlists = playlists,
-                    visiblePlaylists = filterPlaylists(playlists, current.searchQuery),
-                )
-            }
-                .onFailure { countedCurrentPlay = false; _state.value = _state.value.copy(actionMessage = it.message ?: "Could not save play history.") }
-        }
-    }
     }
 
     fun loadLibrary(hasAudioPermission: Boolean, forceRefresh: Boolean = false) {
@@ -464,22 +430,31 @@ class LibraryViewModel(
                 val cachedTracks = withContext(Dispatchers.Default) {
                     playlistStore.loadCachedTracks().map(::cleanTrackMetadata)
                 }
+                if (!mediaStoreVersionLoaded) {
+                    lastMediaStoreVersion = playlistStore.loadSettings()[SETTING_MEDIA_STORE_VERSION]
+                    mediaStoreVersionLoaded = true
+                }
+                val mediaStoreVersion = try {
+                    repository.libraryVersion()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (exception: Exception) {
+                    _state.value = _state.value.copy(
+                        actionMessage = exception.message ?: "Could not check the media library version.",
+                    )
+                    "unknown"
+                }
+                val reuseCachedTracks = shouldReuseCachedTracks(
+                    cachedTracksPresent = cachedTracks.isNotEmpty(),
+                    cachedVersion = lastMediaStoreVersion,
+                    currentVersion = mediaStoreVersion,
+                )
                 val artistAliases = playlistStore.loadArtistAliases()
                 if (_state.value.tracks.isEmpty() && cachedTracks.isNotEmpty()) {
                     rebuildTrackSearchIndex(cachedTracks)
                     val current = _state.value
                     val cachedHidden = playlistStore.loadHiddenFolderPaths()
-                    _state.value = current.copy(
-                        tracks = cachedTracks,
-                        visibleTracks = filterTracks(
-                            cachedTracks.filterNot { folderIsHidden(it, cachedHidden) },
-                            current.searchQuery,
-                            current.sortOrder,
-                            current.hideShortTracks,
-                        ),
-                    )
-                    yield()
-                    val hydratedState = _state.value
+                    val hydratedState = current.copy(tracks = cachedTracks)
                     val cachedDerived = deriveLibraryData(cachedTracks, cachedHidden, artistAliases, hydratedState)
                     val cachedFavorites = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
                     val cachedHistory = playlistStore.loadPlayHistory()
@@ -515,20 +490,39 @@ class LibraryViewModel(
                         visiblePlaylists = filterPlaylists(cachedPlaylists, hydratedState.searchQuery),
                     )
                 }
-                val generation = playlistStore.beginTrackCacheRefresh()
-                val scan = repository.scanTracks { processed, total ->
-                    val current = _state.value
-                    if (processed == total || processed % 96 == 0) {
-                        _state.value = current.copy(scanProcessed = processed, scanTotal = total)
+                var scanComplete = reuseCachedTracks
+                val tracks = if (reuseCachedTracks) {
+                    cachedTracks
+                } else {
+                    val generation = playlistStore.beginTrackCacheRefresh()
+                    val scan = repository.scanTracks { processed, total ->
+                        val current = _state.value
+                        if (processed == total || processed % 96 == 0) {
+                            _state.value = current.copy(scanProcessed = processed, scanTotal = total)
+                        }
                     }
+                    val cleanedScannedTracks = withContext(Dispatchers.Default) {
+                        scan.tracks.map(::cleanTrackMetadata)
+                    }
+                    scanComplete = scan.complete
+                    if (scan.tracks.isNotEmpty()) playlistStore.cacheTracks(generation, scan.tracks)
+                    if (scan.complete) {
+                        playlistStore.finishTrackCacheRefresh(generation)
+                        if (mediaStoreVersion != "unknown" && mediaStoreVersion != "legacy" && mediaStoreVersion.isNotBlank()) {
+                            runCatching {
+                                playlistStore.saveSettings(mapOf(SETTING_MEDIA_STORE_VERSION to mediaStoreVersion))
+                            }.onSuccess {
+                                lastMediaStoreVersion = mediaStoreVersion
+                            }.onFailure {
+                                _state.value = _state.value.copy(
+                                    actionMessage = it.message ?: "Could not save the library cache version.",
+                                )
+                            }
+                        }
+                    }
+                    if (scan.complete || cachedTracks.isEmpty()) cleanedScannedTracks else cachedTracks
                 }
-                val cleanedScannedTracks = withContext(Dispatchers.Default) {
-                    scan.tracks.map(::cleanTrackMetadata)
-                }
-                if (scan.tracks.isNotEmpty()) playlistStore.cacheTracks(generation, scan.tracks)
-                if (scan.complete) playlistStore.finishTrackCacheRefresh(generation)
-                val tracks = if (scan.complete || cachedTracks.isEmpty()) cleanedScannedTracks else cachedTracks
-                if (scan.complete || cachedTracks.isEmpty()) rebuildTrackSearchIndex(tracks)
+                if (!reuseCachedTracks) rebuildTrackSearchIndex(tracks)
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
                 val favoriteUris = playlistStore.loadFavoriteUris().map { it.toString() }.toSet()
@@ -561,8 +555,8 @@ class LibraryViewModel(
                     duplicateGroupsLoaded = false,
                     visiblePlaylists = filterPlaylists(playlistsWithCounts, _state.value.searchQuery),
                     isLoading = false,
-                    scanProcessed = if (scan.complete) tracks.size else _state.value.scanProcessed,
-                    scanTotal = if (scan.complete) tracks.size else _state.value.scanTotal,
+                    scanProcessed = if (scanComplete) tracks.size else _state.value.scanProcessed,
+                    scanTotal = if (scanComplete) tracks.size else _state.value.scanTotal,
                     permissionRequired = false,
                     message = null,
                 )
@@ -593,6 +587,9 @@ class LibraryViewModel(
             category = if (query.isBlank() && current.category == "Search") "Songs" else current.category,
             searchQuery = query,
         )
+        val requestId = ++searchResultsRequestId
+        visibleTracksRequestId++
+        visibleTracksJob?.cancel()
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             if (query.isNotBlank()) delay(150L)
@@ -620,9 +617,16 @@ class LibraryViewModel(
                     duplicateGroups = filterDuplicateGroups(base.duplicateGroups, query),
                 )
             }
-            if (_state.value.searchQuery == query) {
-                _state.value = _state.value.copy(
-                    visibleTracks = filtered.tracks,
+            val latest = _state.value
+            if (requestId == searchResultsRequestId && latest.searchQuery == query && latest.tracks === base.tracks) {
+                val trackFiltersUnchanged = latest.sortOrder == base.sortOrder &&
+                    latest.hideShortTracks == base.hideShortTracks &&
+                    latest.sortAscending == base.sortAscending &&
+                    latest.hideLongTracks == base.hideLongTracks &&
+                    latest.hideLongTracksAfterMinutes == base.hideLongTracksAfterMinutes &&
+                    latest.hiddenFolderPaths == base.hiddenFolderPaths
+                _state.value = latest.copy(
+                    visibleTracks = if (trackFiltersUnchanged) filtered.tracks else latest.visibleTracks,
                     visibleArtists = filtered.artists,
                     visibleAlbums = filtered.albums,
                     visiblePlaylists = filtered.playlists,
@@ -632,6 +636,28 @@ class LibraryViewModel(
                     visibleYears = filtered.years,
                     visibleDuplicateGroups = filtered.duplicateGroups,
                 )
+            }
+        }
+    }
+
+    private fun scheduleVisibleTrackFilter() {
+        val requestId = ++visibleTracksRequestId
+        visibleTracksJob?.cancel()
+        val current = _state.value
+        visibleTracksJob = viewModelScope.launch {
+            val filtered = withContext(Dispatchers.Default) {
+                filterTracks(
+                    availableTracks(current),
+                    current.searchQuery,
+                    current.sortOrder,
+                    current.hideShortTracks,
+                    current.sortAscending,
+                    current.hideLongTracks,
+                    current.hideLongTracksAfterMinutes,
+                )
+            }
+            if (requestId == visibleTracksRequestId && _state.value.tracks === current.tracks) {
+                _state.value = _state.value.copy(visibleTracks = filtered)
             }
         }
     }
@@ -777,58 +803,33 @@ class LibraryViewModel(
 
     fun setSortOrder(order: String) {
         if (order !in SORT_ORDERS) return
-        val current = _state.value
-        _state.value = current.copy(sortOrder = order, visibleTracks = filterTracks(availableTracks(current), current.searchQuery, order, current.hideShortTracks))
+        _state.value = _state.value.copy(sortOrder = order)
+        scheduleVisibleTrackFilter()
         viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_SORT_ORDER to order)) } }
     }
 
     fun setSortAscending(ascending: Boolean) {
-        val current = _state.value
-        _state.value = current.copy(
-            sortAscending = ascending,
-            visibleTracks = filterTracks(availableTracks(current), current.searchQuery, current.sortOrder, current.hideShortTracks, ascending),
-        )
+        _state.value = _state.value.copy(sortAscending = ascending)
+        scheduleVisibleTrackFilter()
         viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_SORT_ASCENDING to ascending.toString())) } }
     }
 
     fun setHideShortTracks(hide: Boolean) {
-        val current = _state.value
-        _state.value = current.copy(hideShortTracks = hide, visibleTracks = filterTracks(availableTracks(current), current.searchQuery, current.sortOrder, hide))
+        _state.value = _state.value.copy(hideShortTracks = hide)
+        scheduleVisibleTrackFilter()
         viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_HIDE_SHORT_TRACKS to hide.toString())) } }
     }
 
     fun setHideLongTracks(hide: Boolean) {
-        val current = _state.value
-        _state.value = current.copy(
-            hideLongTracks = hide,
-            visibleTracks = filterTracks(
-                availableTracks(current),
-                current.searchQuery,
-                current.sortOrder,
-                current.hideShortTracks,
-                current.sortAscending,
-                hide,
-                current.hideLongTracksAfterMinutes,
-            ),
-        )
+        _state.value = _state.value.copy(hideLongTracks = hide)
+        scheduleVisibleTrackFilter()
         viewModelScope.launch { runCatching { playlistStore.saveSettings(mapOf(SETTING_HIDE_LONG_TRACKS to hide.toString())) } }
     }
 
     fun setHideLongTracksAfterMinutes(minutes: Int) {
         if (minutes !in LONG_TRACK_FILTER_MINUTES) return
-        val current = _state.value
-        _state.value = current.copy(
-            hideLongTracksAfterMinutes = minutes,
-            visibleTracks = filterTracks(
-                availableTracks(current),
-                current.searchQuery,
-                current.sortOrder,
-                current.hideShortTracks,
-                current.sortAscending,
-                current.hideLongTracks,
-                minutes,
-            ),
-        )
+        _state.value = _state.value.copy(hideLongTracksAfterMinutes = minutes)
+        scheduleVisibleTrackFilter()
         viewModelScope.launch {
             runCatching { playlistStore.saveSettings(mapOf(SETTING_HIDE_LONG_TRACKS_AFTER_MINUTES to minutes.toString())) }
         }
@@ -909,6 +910,8 @@ class LibraryViewModel(
                     resolvedNotDuplicatePairs,
                 )
                 val saved = playlistStore.loadSettings()
+                lastMediaStoreVersion = null
+                mediaStoreVersionLoaded = true
                 val current = _state.value
                 val sortOrder = saved[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: "Title"
                 val sortAscending = saved[SETTING_SORT_ASCENDING]?.toBooleanStrictOrNull() ?: (sortOrder != "Date added")
@@ -937,15 +940,6 @@ class LibraryViewModel(
                     duplicateGroups = emptyList(),
                     visibleDuplicateGroups = emptyList(),
                     duplicateGroupsLoaded = false,
-                    visibleTracks = filterTracks(
-                        current.tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) },
-                        current.searchQuery,
-                        sortOrder,
-                        hideShortTracks,
-                        sortAscending,
-                        hideLongTracks,
-                        hideLongTracksAfterMinutes,
-                    ),
                     actionMessage = null,
                     backupRestoreReport = BackupRestoreReport(
                         playlistCount = resolvedPlaylists.size,
@@ -953,6 +947,7 @@ class LibraryViewModel(
                         missingTrackCount = missingTrackCount,
                     ),
                 )
+                scheduleVisibleTrackFilter()
                 onSettingsRestored(saved)
                 refreshPlaylists()
             }
@@ -1093,13 +1088,27 @@ class LibraryViewModel(
         }
     }
 
-    fun createPlaylist(name: String, tracksToAdd: List<AudioTrack> = emptyList()) {
+    fun createPlaylist(
+        name: String,
+        tracksToAdd: List<AudioTrack> = emptyList(),
+        onResult: (Boolean) -> Unit = {},
+    ) {
         viewModelScope.launch {
             runCatching {
-                playlistStore.createPlaylist(name).also { playlist -> tracksToAdd.forEach { playlistStore.addTrack(playlist.id, it.uri) } }
+                if (tracksToAdd.isEmpty()) {
+                    playlistStore.createPlaylist(name)
+                } else {
+                    playlistStore.createPlaylistWithTracks(name, tracksToAdd.map { it.uri })
+                }
             }
-                .onSuccess { refreshPlaylists() }
-                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not create playlist.") }
+                .onSuccess {
+                    refreshPlaylists()
+                    onResult(true)
+                }
+                .onFailure {
+                    _state.value = _state.value.copy(actionMessage = it.message ?: "Could not create playlist.")
+                    onResult(false)
+                }
         }
     }
 
@@ -1109,6 +1118,52 @@ class LibraryViewModel(
 
     fun clearActionMessage() {
         _state.value = _state.value.copy(actionMessage = null)
+    }
+
+    fun refreshPlayHistory() {
+        viewModelScope.launch {
+            try {
+                val history = playlistStore.loadPlayHistory()
+                val current = _state.value
+                val active = current.activePlaylist
+                val (browseTracks, playlists) = withContext(Dispatchers.Default) {
+                    val available = availableTracks(current)
+                    if (active?.isAuto == true && active.autoKind != "favorites") {
+                        val updatedBrowseTracks = automaticPlaylistTracks(active, available, history)
+                        val updatedPlaylists = withHistoryPlaylistCounts(current.playlists, available, history)
+                        updatedBrowseTracks to updatedPlaylists
+                    } else {
+                        val updatedPlaylists = withHistoryPlaylistCounts(current.playlists, available, history)
+                        current.browseTracks to updatedPlaylists
+                    }
+                }
+                val latest = _state.value
+                val sameLibrary = latest.tracks === current.tracks && latest.hiddenFolderPaths == current.hiddenFolderPaths
+                val latestPlaylists = if (sameLibrary && latest.playlists === current.playlists) {
+                    playlists
+                } else {
+                    withContext(Dispatchers.Default) {
+                        withHistoryPlaylistCounts(latest.playlists, availableTracks(latest), history)
+                    }
+                }
+                val latestVisiblePlaylists = withContext(Dispatchers.Default) {
+                    filterPlaylists(latestPlaylists, latest.searchQuery)
+                }
+                val latestBrowseTracks = if (sameLibrary && latest.activePlaylist?.id == active?.id) {
+                    browseTracks
+                } else latest.browseTracks
+                _state.value = latest.copy(
+                    playHistory = history,
+                    browseTracks = latestBrowseTracks,
+                    playlists = latestPlaylists,
+                    visiblePlaylists = latestVisiblePlaylists,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (exception: Exception) {
+                _state.value = _state.value.copy(actionMessage = exception.message ?: "Could not load play history.")
+            }
+        }
     }
 
     fun importM3u(name: String, contents: String) {
@@ -1200,17 +1255,35 @@ class LibraryViewModel(
         }
     }
 
-    fun addTracksToPlaylist(playlist: DevicePlaylist, tracks: List<AudioTrack>) {
-        if (!playlist.isLocal || (playlist.isAuto && playlist.autoKind != "favorites")) return
+    fun addTracksToPlaylist(
+        playlist: DevicePlaylist,
+        tracks: List<AudioTrack>,
+        onResult: (Boolean) -> Unit = {},
+    ) {
+        if (tracks.isEmpty()) {
+            _state.value = _state.value.copy(actionMessage = "Select at least one song.")
+            onResult(false)
+            return
+        }
+        if (!playlist.isLocal || (playlist.isAuto && playlist.autoKind != "favorites")) {
+            _state.value = _state.value.copy(actionMessage = "This playlist cannot be edited.")
+            onResult(false)
+            return
+        }
         viewModelScope.launch {
-            runCatching { tracks.forEach { playlistStore.addTrack(playlist.id, it.uri) } }
+            runCatching { playlistStore.addTracks(playlist.id, tracks.map { it.uri }) }
                 .onSuccess {
                     val current = _state.value
                     val favorites = if (playlist.autoKind == "favorites") current.favoriteUris + tracks.map { it.uri.toString() } else current.favoriteUris
                     val browseTracks = if (current.activePlaylist?.id == playlist.id) loadPlaylistTracks(playlist) else current.browseTracks
                     _state.value = current.copy(favoriteUris = favorites, browseTracks = browseTracks, actionMessage = null)
+                    refreshPlaylists()
+                    onResult(true)
                 }
-                .onFailure { _state.value = _state.value.copy(actionMessage = it.message ?: "Could not add songs to playlist.") }
+                .onFailure {
+                    _state.value = _state.value.copy(actionMessage = it.message ?: "Could not add songs to playlist.")
+                    onResult(false)
+                }
         }
     }
 
@@ -1301,6 +1374,24 @@ class LibraryViewModel(
         }
     }
 
+    private suspend fun withHistoryPlaylistCounts(
+        playlists: List<DevicePlaylist>,
+        tracks: List<AudioTrack>,
+        history: Map<String, TrackPlayHistory>,
+    ): List<DevicePlaylist> = withContext(Dispatchers.Default) {
+        playlists.map { playlist ->
+            if (playlist.autoKind == null || playlist.autoKind == "favorites") {
+                playlist
+            } else {
+                val playlistTracks = automaticPlaylistTracks(playlist, tracks, history)
+                playlist.copy(
+                    trackCount = playlistTracks.size,
+                    artworkUris = playlistTracks.take(4).map { it.uri },
+                )
+            }
+        }
+    }
+
     private suspend fun loadLocalTracks(playlistId: Long): List<AudioTrack> {
         val tracksByUri = availableTracks(_state.value).associateBy { it.uri }
         return playlistStore.loadTrackUris(playlistId).mapNotNull(tracksByUri::get)
@@ -1384,6 +1475,7 @@ class LibraryViewModel(
         const val SETTING_WHEEL_SENSITIVITY = "clickWheelSensitivity"
         const val SETTING_WHEEL_HAPTICS = "clickWheelHaptics"
         const val SETTING_LYRICS_TREE = "lyricsTreeUri"
+        const val SETTING_MEDIA_STORE_VERSION = "mediaStoreLibraryVersion"
         const val RECENTLY_ADDED_DAYS = 30L
         const val SECONDS_PER_DAY = 24L * 60L * 60L
         const val RECENTLY_ADDED_LIMIT = 100

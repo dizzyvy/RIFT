@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -32,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -99,6 +101,7 @@ fun NowPlayingScreen(
     onClickWheelHapticsChange: (Boolean) -> Unit,
 ) {
     val track = playback.currentTrack
+    val repeatPresentation = repeatModePresentation(playback.repeatMode)
     var loopStartMs by remember(track?.uri) { mutableStateOf<Long?>(null) }
     var loopEndMs by remember(track?.uri) { mutableStateOf<Long?>(null) }
     var scrubPositionMs by remember(track?.uri) { mutableStateOf<Float?>(null) }
@@ -291,24 +294,35 @@ fun NowPlayingScreen(
                 Icon(Icons.Default.Shuffle, contentDescription = null, tint = if (playback.shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
             }
             IconButton(
-                onClick = {
-                    onRepeat(
-                        when (playback.repeatMode) {
-                            androidx.media3.common.Player.REPEAT_MODE_OFF -> androidx.media3.common.Player.REPEAT_MODE_ALL
-                            androidx.media3.common.Player.REPEAT_MODE_ALL -> androidx.media3.common.Player.REPEAT_MODE_ONE
-                            else -> androidx.media3.common.Player.REPEAT_MODE_OFF
-                        },
-                    )
-                },
+                onClick = { onRepeat(nextRepeatMode(playback.repeatMode)) },
                 modifier = Modifier.size(48.dp).semantics {
-                    contentDescription = when (playback.repeatMode) {
-                        androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repeat all"
-                        androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repeat one"
-                        else -> "Repeat off"
-                    }
+                    contentDescription = repeatPresentation.contentDescription
                 },
             ) {
-                Icon(Icons.Default.Repeat, contentDescription = null, tint = if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary)
+                val tint = if (playback.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) {
+                    MaterialTheme.colorScheme.onSurface
+                } else MaterialTheme.colorScheme.primary
+                Box(Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Repeat, contentDescription = null, tint = tint)
+                    if (repeatPresentation.showsOneIndicator) {
+                        Box(
+                            Modifier.align(Alignment.BottomEnd)
+                                .offset(x = 2.dp, y = 2.dp)
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "1",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontSize = 8.sp,
+                                lineHeight = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
             }
         }
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {

@@ -1,5 +1,9 @@
 package com.dizzyvy.rift.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +46,7 @@ import com.dizzyvy.rift.music.library.PlaylistStore
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
 import com.dizzyvy.rift.music.lyrics.LocalLyricsRepository
 import com.dizzyvy.rift.music.playback.PlaybackController
+import com.dizzyvy.rift.music.playback.ACTION_PLAY_HISTORY_UPDATED
 import com.dizzyvy.rift.ui.library.LibraryScreen
 import com.dizzyvy.rift.ui.library.LibraryViewModel
 import com.dizzyvy.rift.ui.player.NowPlayingScreen
@@ -82,6 +87,21 @@ fun RiftApp(
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val refreshScope = rememberCoroutineScope()
+    DisposableEffect(context, libraryViewModel) {
+        val appContext = context.applicationContext
+        val historyReceiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context?, intent: Intent?) {
+                if (intent?.action == ACTION_PLAY_HISTORY_UPDATED) libraryViewModel.refreshPlayHistory()
+            }
+        }
+        val historyFilter = IntentFilter(ACTION_PLAY_HISTORY_UPDATED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appContext.registerReceiver(historyReceiver, historyFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            appContext.registerReceiver(historyReceiver, historyFilter)
+        }
+        onDispose { appContext.unregisterReceiver(historyReceiver) }
+    }
     var pendingExportText by remember { mutableStateOf("") }
     var pendingBackupText by remember { mutableStateOf("") }
     var pendingDeleteUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -334,7 +354,9 @@ fun RiftApp(
                 onOpenAlbum = libraryViewModel::openAlbum,
                 onOpenCollection = libraryViewModel::openCollection,
                 onOpenPlaylist = libraryViewModel::openPlaylist,
-                onCreatePlaylist = libraryViewModel::createPlaylist,
+                onCreatePlaylist = { name, tracks, onResult ->
+                    libraryViewModel.createPlaylist(name, tracks, onResult)
+                },
                 onRenamePlaylist = libraryViewModel::renamePlaylist,
                 onDeletePlaylist = libraryViewModel::deletePlaylist,
                 onImportM3u = { importLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain")) },
@@ -343,7 +365,9 @@ fun RiftApp(
                 onImportBackup = { backupImportLauncher.launch(arrayOf("application/json", "text/plain")) },
                 onExportBackup = { libraryViewModel.exportBackup { contents -> pendingBackupText = contents; backupExportLauncher.launch("RIFT-Backup.json") } },
                 onAddTrackToPlaylist = libraryViewModel::addTrackToPlaylist,
-                onAddTracksToPlaylist = libraryViewModel::addTracksToPlaylist,
+                onAddTracksToPlaylist = { playlist, tracks, onResult ->
+                    libraryViewModel.addTracksToPlaylist(playlist, tracks, onResult)
+                },
                 onPlayBrowseTracks = libraryViewModel::playBrowseTracks,
                 onRemoveTrackFromPlaylist = libraryViewModel::removeTrackFromPlaylist,
                 onMovePlaylistTrack = libraryViewModel::movePlaylistTrack,

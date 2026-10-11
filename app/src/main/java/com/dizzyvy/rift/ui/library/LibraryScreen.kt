@@ -144,7 +144,7 @@ fun LibraryScreen(
     onOpenAlbum: (AlbumBrowseItem) -> Unit,
     onOpenCollection: (LibraryCollectionItem, String) -> Unit,
     onOpenPlaylist: (DevicePlaylist) -> Unit,
-    onCreatePlaylist: (String, List<AudioTrack>) -> Unit,
+    onCreatePlaylist: (String, List<AudioTrack>, (Boolean) -> Unit) -> Unit,
     onRenamePlaylist: (DevicePlaylist, String) -> Unit,
     onDeletePlaylist: (DevicePlaylist) -> Unit,
     onImportM3u: () -> Unit,
@@ -153,7 +153,7 @@ fun LibraryScreen(
     onImportBackup: () -> Unit,
     onExportBackup: () -> Unit,
     onAddTrackToPlaylist: (DevicePlaylist, AudioTrack) -> Unit,
-    onAddTracksToPlaylist: (DevicePlaylist, List<AudioTrack>) -> Unit,
+    onAddTracksToPlaylist: (DevicePlaylist, List<AudioTrack>, (Boolean) -> Unit) -> Unit,
     onPlayBrowseTracks: (Boolean) -> Unit,
     onRemoveTrackFromPlaylist: (AudioTrack) -> Unit,
     onMovePlaylistTrack: (Int, Int) -> Unit,
@@ -190,6 +190,7 @@ fun LibraryScreen(
     var showAddSheet by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var tracksToAddOnCreate by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
+    var tracksRequiredOnCreate by remember { mutableStateOf(false) }
     var playlistToRename by remember { mutableStateOf<DevicePlaylist?>(null) }
     var playlistToDelete by remember { mutableStateOf<DevicePlaylist?>(null) }
     var playlistNameInput by remember { mutableStateOf("") }
@@ -222,9 +223,7 @@ fun LibraryScreen(
         previousTrack = onPreviousTrack,
         nextTrack = onNextTrack,
     )
-    val selectedTracks = remember(songs, selectedUris) {
-        songs.filter { it.uri.toString() in selectedUris }
-    }
+    val selectedTracks = remember(songs, selectedUris) { selectedTracksInLibraryOrder(songs, selectedUris) }
     BackHandler(enabled = selectedUris.isNotEmpty() || state.searchQuery.isNotEmpty()) {
         if (selectedUris.isNotEmpty()) {
             selectedUris = emptySet()
@@ -411,6 +410,15 @@ fun LibraryScreen(
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) { Text("Add to playlist") }
                     TextButton(
+                        onClick = {
+                            tracksToAddOnCreate = selectedTracks
+                            tracksRequiredOnCreate = true
+                            playlistNameInput = ""
+                            showCreateDialog = true
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Create playlist") }
+                    TextButton(
                         onClick = { showDeleteSelectionConfirmation = true },
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) { Text("Delete") }
@@ -468,7 +476,12 @@ fun LibraryScreen(
                 if (state.category == "Playlists") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = { tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true },
+                            onClick = {
+                                tracksToAddOnCreate = emptyList()
+                                tracksRequiredOnCreate = false
+                                playlistNameInput = ""
+                                showCreateDialog = true
+                            },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         ) { Text("New playlist") }
                         Box {
@@ -544,7 +557,12 @@ fun LibraryScreen(
                     else if (state.category == "Search") "Try a different search or select another filter."
                     else "Add audio files to your phone or SD card, then scan again.",
                     if (state.browseTitle == null && state.category == "Playlists") "Create" else if (state.browseTitle == null && state.category != "Search" && state.category != "Duplicates" && !(state.category == "Folders" && showingHiddenFolders)) "Scan again" else null,
-                    if (state.browseTitle == null && state.category == "Playlists") ({ tracksToAddOnCreate = emptyList(); playlistNameInput = ""; showCreateDialog = true })
+                    if (state.browseTitle == null && state.category == "Playlists") ({
+                        tracksToAddOnCreate = emptyList()
+                        tracksRequiredOnCreate = false
+                        playlistNameInput = ""
+                        showCreateDialog = true
+                    })
                     else if (state.browseTitle == null && state.category != "Search") onRetry else null,
                 )
                 else PullToRefreshBox(isRefreshing = state.isLoading, onRefresh = onRetry, modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -742,6 +760,8 @@ fun LibraryScreen(
         showCreateDialog = showCreateDialog,
         onShowCreateDialogChange = { showCreateDialog = it },
         tracksToAddOnCreate = tracksToAddOnCreate,
+        tracksRequiredOnCreate = tracksRequiredOnCreate,
+        onTracksRequiredOnCreateChange = { tracksRequiredOnCreate = it },
         onTracksToAddOnCreateChange = { tracksToAddOnCreate = it },
         playlistNameInput = playlistNameInput,
         onPlaylistNameInputChange = { playlistNameInput = it },

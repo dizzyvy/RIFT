@@ -7,6 +7,11 @@ import com.dizzyvy.rift.music.library.DevicePlaylist
 import com.dizzyvy.rift.music.library.LibraryCollectionItem
 import com.dizzyvy.rift.music.model.AudioTrack
 
+internal fun selectedTracksInLibraryOrder(
+    tracks: List<AudioTrack>,
+    selectedUris: Set<String>,
+): List<AudioTrack> = tracks.filter { it.uri.toString() in selectedUris }
+
 @Stable
 internal class LibraryActions(
     val playTrack: (AudioTrack) -> Unit,

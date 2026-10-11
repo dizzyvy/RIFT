@@ -36,8 +36,8 @@ internal class LibraryDialogActions(
     val clearBackupRestoreReport: () -> Unit,
     val playNext: (List<AudioTrack>) -> Unit,
     val addToQueue: (AudioTrack) -> Unit,
-    val addTracksToPlaylist: (DevicePlaylist, List<AudioTrack>) -> Unit,
-    val createPlaylist: (String, List<AudioTrack>) -> Unit,
+    val addTracksToPlaylist: (DevicePlaylist, List<AudioTrack>, (Boolean) -> Unit) -> Unit,
+    val createPlaylist: (String, List<AudioTrack>, (Boolean) -> Unit) -> Unit,
     val renamePlaylist: (DevicePlaylist, String) -> Unit,
     val deletePlaylist: (DevicePlaylist) -> Unit,
 )
@@ -68,6 +68,8 @@ internal fun LibraryDialogs(
     showCreateDialog: Boolean,
     onShowCreateDialogChange: (Boolean) -> Unit,
     tracksToAddOnCreate: List<AudioTrack>,
+    tracksRequiredOnCreate: Boolean,
+    onTracksRequiredOnCreateChange: (Boolean) -> Unit,
     onTracksToAddOnCreateChange: (List<AudioTrack>) -> Unit,
     playlistNameInput: String,
     onPlaylistNameInputChange: (String) -> Unit,
@@ -252,16 +254,20 @@ internal fun LibraryDialogs(
             }, modifier = Modifier.fillMaxWidth()) { Text("Add to queue") }
             TextButton(onClick = {
                 onTracksToAddOnCreateChange(pendingTracks)
+                onTracksRequiredOnCreateChange(pendingTracks.isNotEmpty())
                 onPlaylistNameInputChange("")
                 onDismissAddSheet()
                 onShowCreateDialogChange(true)
             }, modifier = Modifier.fillMaxWidth()) { Text("Create new playlist") }
             state.playlists.filter { it.isLocal && (!it.isAuto || it.autoKind == "favorites") }.forEach { playlist ->
                 TextButton(onClick = {
-                    actions.addTracksToPlaylist(playlist, pendingTracks)
-                    onDismissAddSheet()
-                    onPendingTracksChange(emptyList())
-                    onSelectionChange(emptySet())
+                    actions.addTracksToPlaylist(playlist, pendingTracks) { succeeded ->
+                        if (succeeded) {
+                            onDismissAddSheet()
+                            onPendingTracksChange(emptyList())
+                            onSelectionChange(emptySet())
+                        }
+                    }
                 }, modifier = Modifier.fillMaxWidth()) { Text("Add to ${playlist.name}") }
             }
             Spacer(Modifier.height(24.dp))
@@ -269,26 +275,47 @@ internal fun LibraryDialogs(
     }
     if (showCreateDialog) {
         AlertDialog(
-            onDismissRequest = { onShowCreateDialogChange(false); onTracksToAddOnCreateChange(emptyList()) },
+            onDismissRequest = {
+                onShowCreateDialogChange(false)
+                onTracksToAddOnCreateChange(emptyList())
+                onTracksRequiredOnCreateChange(false)
+            },
             title = { ShrikhandHeading("Create playlist", MaterialTheme.typography.headlineSmall) },
             text = {
-                OutlinedTextField(
-                    value = playlistNameInput,
-                    onValueChange = onPlaylistNameInputChange,
-                    singleLine = true,
-                    label = { Text("Playlist name") },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = playlistNameInput,
+                        onValueChange = onPlaylistNameInputChange,
+                        singleLine = true,
+                        label = { Text("Playlist name") },
+                    )
+                    if (tracksRequiredOnCreate && tracksToAddOnCreate.isEmpty()) {
+                        Text("Select at least one song before creating a playlist.")
+                    }
+                }
             },
             confirmButton = {
-                TextButton(enabled = playlistNameInput.isNotBlank(), onClick = {
-                    actions.createPlaylist(playlistNameInput.trim(), tracksToAddOnCreate)
-                    onShowCreateDialogChange(false)
-                    onTracksToAddOnCreateChange(emptyList())
-                    onPendingTracksChange(emptyList())
-                }) { Text("Create") }
+                TextButton(
+                    enabled = playlistNameInput.isNotBlank() && (!tracksRequiredOnCreate || tracksToAddOnCreate.isNotEmpty()),
+                    onClick = {
+                        actions.createPlaylist(playlistNameInput.trim(), tracksToAddOnCreate) { succeeded ->
+                            if (succeeded) {
+                                onShowCreateDialogChange(false)
+                                onTracksToAddOnCreateChange(emptyList())
+                                onTracksRequiredOnCreateChange(false)
+                                onPendingTracksChange(emptyList())
+                                onSelectionChange(emptySet())
+                            }
+                        }
+                    },
+                ) { Text("Create") }
             },
             dismissButton = {
-                TextButton(onClick = { onShowCreateDialogChange(false); onTracksToAddOnCreateChange(emptyList()) }) {
+                TextButton(onClick = {
+                    onShowCreateDialogChange(false)
+                    onTracksToAddOnCreateChange(emptyList())
+                    onTracksRequiredOnCreateChange(false)
+                }) {
                     Text("Cancel")
                 }
             },

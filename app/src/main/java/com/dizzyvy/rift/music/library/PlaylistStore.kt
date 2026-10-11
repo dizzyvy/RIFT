@@ -40,10 +40,19 @@ data class CachedArtwork(
 interface PlaylistStore {
     suspend fun loadPlaylists(): List<DevicePlaylist>
     suspend fun createPlaylist(name: String): DevicePlaylist
+    suspend fun createPlaylistWithTracks(name: String, uris: List<Uri>): DevicePlaylist {
+        require(uris.isNotEmpty()) { "Select at least one song." }
+        val playlist = createPlaylist(name)
+        addTracks(playlist.id, uris)
+        return playlist
+    }
     suspend fun renamePlaylist(id: Long, name: String)
     suspend fun deletePlaylist(id: Long)
     suspend fun loadTrackUris(playlistId: Long): List<Uri>
     suspend fun addTrack(playlistId: Long, uri: Uri)
+    suspend fun addTracks(playlistId: Long, uris: List<Uri>) {
+        uris.forEach { addTrack(playlistId, it) }
+    }
     suspend fun removeTrack(playlistId: Long, uri: Uri)
     suspend fun reorderTrack(playlistId: Long, fromIndex: Int, toIndex: Int)
     suspend fun loadFavoriteUris(): List<Uri>
@@ -536,7 +545,11 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
             }
         }
         val settings = loadSettings()
-            .filterKeys { it != SETTING_LYRICS_TREE && it !in LEGACY_APPEARANCE_SETTINGS }
+            .filterKeys {
+                it != SETTING_LYRICS_TREE &&
+                    it != SETTING_MEDIA_STORE_VERSION &&
+                    it !in LEGACY_APPEARANCE_SETTINGS
+            }
             .toMutableMap().apply {
             put(SETTING_HIDDEN_FOLDERS, org.json.JSONArray(loadHiddenFolderPaths().sorted()).toString())
         }
@@ -610,7 +623,16 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
                     )
                 }
             }
-            snapshot.settings.forEach { (key, value) -> db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", key); put("value", value) }, SQLiteDatabase.CONFLICT_REPLACE) }
+            snapshot.settings
+                .filterKeys { it != SETTING_MEDIA_STORE_VERSION }
+                .forEach { (key, value) ->
+                    db.insertWithOnConflict(
+                        "app_settings",
+                        null,
+                        ContentValues().apply { put("key", key); put("value", value) },
+                        SQLiteDatabase.CONFLICT_REPLACE,
+                    )
+                }
             if (localLyricsTree != null) db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", SETTING_LYRICS_TREE); put("value", localLyricsTree) }, SQLiteDatabase.CONFLICT_REPLACE)
             val hiddenFolders = org.json.JSONArray(snapshot.settings[SETTING_HIDDEN_FOLDERS] ?: "[]")
             for (index in 0 until hiddenFolders.length()) {
@@ -622,12 +644,19 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     override suspend fun loadPlaylists(): List<DevicePlaylist> = withContext(Dispatchers.IO) {
-        val saved = readableDatabase.query("playlists", arrayOf("_id", "name"), null, null, null, null, "name COLLATE NOCASE ASC").use { cursor ->
+        val saved = readableDatabase.query(
+            "playlists LEFT JOIN playlist_tracks ON playlists._id = playlist_tracks.playlist_id",
+            arrayOf("playlists._id", "playlists.name", "COUNT(playlist_tracks.uri)"),
+            null,
+            null,
+            "playlists._id, playlists.name",
+            null,
+            "playlists.name COLLATE NOCASE ASC",
+        ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(0)
-                    val count = readableDatabase.rawQuery("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = ?", arrayOf(id.toString())).use { countCursor -> if (countCursor.moveToFirst()) countCursor.getInt(0) else 0 }
-                    add(DevicePlaylist(id, LOCAL_VOLUME, cursor.getString(1), isLocal = true, trackCount = count))
+                    add(DevicePlaylist(id, LOCAL_VOLUME, cursor.getString(1), isLocal = true, trackCount = cursor.getInt(2)))
                 }
             }
         }
@@ -641,11 +670,21 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     override suspend fun createPlaylist(name: String): DevicePlaylist = withContext(Dispatchers.IO) {
-        val normalized = name.trim()
-        require(normalized.isNotEmpty()) { "Playlist name cannot be empty." }
-        require(normalized.lowercase() !in AUTO_PLAYLIST_NAMES) { "That name is reserved for an automatic playlist." }
-        val id = writableDatabase.insertOrThrow("playlists", null, ContentValues().apply { put("name", normalized) })
-        DevicePlaylist(id, LOCAL_VOLUME, normalized, isLocal = true)
+        createPlaylistInDatabase(writableDatabase, name)
+    }
+
+    override suspend fun createPlaylistWithTracks(name: String, uris: List<Uri>): DevicePlaylist = withContext(Dispatchers.IO) {
+        require(uris.isNotEmpty()) { "Select at least one song." }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val playlist = createPlaylistInDatabase(db, name)
+            addTracksToDatabase(db, playlist.id, uris)
+            db.setTransactionSuccessful()
+            playlist
+        } finally {
+            db.endTransaction()
+        }
     }
 
     override suspend fun renamePlaylist(id: Long, name: String) = withContext(Dispatchers.IO) {
@@ -671,24 +710,18 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         }
     }
 
-    override suspend fun addTrack(playlistId: Long, uri: Uri) = withContext(Dispatchers.IO) {
-        if (playlistId < 0L) {
-            require(playlistId == FAVORITES_PLAYLIST_ID) { "Only Favorites can be edited." }
-            writableDatabase.insertWithOnConflict("favorites", null, ContentValues().apply { put("uri", uri.toString()) }, SQLiteDatabase.CONFLICT_IGNORE)
-            return@withContext Unit
-        }
+    override suspend fun addTrack(playlistId: Long, uri: Uri) = addTracks(playlistId, listOf(uri))
+
+    override suspend fun addTracks(playlistId: Long, uris: List<Uri>) = withContext(Dispatchers.IO) {
+        if (uris.isEmpty()) return@withContext
         val db = writableDatabase
-        checkPlaylistExists(db, playlistId)
-        val position = db.compileStatement("SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?").run {
-            bindLong(1, playlistId)
-            simpleQueryForLong().toInt()
+        db.beginTransaction()
+        try {
+            addTracksToDatabase(db, playlistId, uris)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        db.insertWithOnConflict("playlist_tracks", null, ContentValues().apply {
-            put("playlist_id", playlistId)
-            put("uri", uri.toString())
-            put("position", position)
-        }, SQLiteDatabase.CONFLICT_IGNORE)
-        Unit
     }
 
     override suspend fun removeTrack(playlistId: Long, uri: Uri) = withContext(Dispatchers.IO) {
@@ -786,6 +819,10 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
     }
 
     override suspend fun recordPlay(uri: Uri, playedAtMs: Long) = withContext(Dispatchers.IO) {
+        recordPlaySync(uri, playedAtMs)
+    }
+
+    internal fun recordPlaySync(uri: Uri, playedAtMs: Long) {
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -803,7 +840,6 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         } finally {
             db.endTransaction()
         }
-        Unit
     }
 
     override suspend fun loadPlayHistory(): Map<String, TrackPlayHistory> = withContext(Dispatchers.IO) {
@@ -854,6 +890,44 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         }
     }
 
+    private fun createPlaylistInDatabase(db: SQLiteDatabase, name: String): DevicePlaylist {
+        val normalized = name.trim()
+        require(normalized.isNotEmpty()) { "Playlist name cannot be empty." }
+        require(normalized.lowercase() !in AUTO_PLAYLIST_NAMES) { "That name is reserved for an automatic playlist." }
+        val id = db.insertOrThrow("playlists", null, ContentValues().apply { put("name", normalized) })
+        return DevicePlaylist(id, LOCAL_VOLUME, normalized, isLocal = true)
+    }
+
+    private fun addTracksToDatabase(db: SQLiteDatabase, playlistId: Long, uris: List<Uri>) {
+        if (playlistId < 0L) {
+            require(playlistId == FAVORITES_PLAYLIST_ID) { "Only Favorites can be edited." }
+            uris.distinctBy(Uri::toString).forEach { uri ->
+                db.insertWithOnConflict(
+                    "favorites",
+                    null,
+                    ContentValues().apply { put("uri", uri.toString()) },
+                    SQLiteDatabase.CONFLICT_IGNORE,
+                )
+            }
+            return
+        }
+        checkPlaylistExists(db, playlistId)
+        var position = db.compileStatement(
+            "SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?",
+        ).run {
+            bindLong(1, playlistId)
+            simpleQueryForLong().toInt()
+        }
+        uris.distinctBy(Uri::toString).forEach { uri ->
+            val inserted = db.insertWithOnConflict("playlist_tracks", null, ContentValues().apply {
+                put("playlist_id", playlistId)
+                put("uri", uri.toString())
+                put("position", position)
+            }, SQLiteDatabase.CONFLICT_IGNORE)
+            if (inserted != -1L) position++
+        }
+    }
+
     private fun normalizePositions(db: SQLiteDatabase, playlistId: Long) {
         val uris = db.query("playlist_tracks", arrayOf("uri"), "playlist_id = ?", arrayOf(playlistId.toString()), null, null, "position ASC").use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
@@ -870,6 +944,7 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
         const val CACHE_BATCH_SIZE = 200
         const val SETTING_HIDDEN_FOLDERS = "hiddenFolders"
         const val SETTING_LYRICS_TREE = "lyricsTreeUri"
+        const val SETTING_MEDIA_STORE_VERSION = "mediaStoreLibraryVersion"
         const val TAG = "RIFTPlaylistStore"
         const val LOCAL_VOLUME = "app"
         const val FAVORITES_PLAYLIST_ID = -1L
