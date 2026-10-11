@@ -447,6 +447,7 @@ fun NowPlayingScreen(
             }
         }
         ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
+            val queueDurationMs = playback.queue.sumOf { it.durationMs.coerceAtLeast(0L) }
             LazyColumn(
                 state = queueListState,
                 modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp),
@@ -456,7 +457,11 @@ fun NowPlayingScreen(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             ShrikhandHeading("Up Next", MaterialTheme.typography.titleLarge)
-                            Text("${playback.queue.size} tracks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "${playback.queue.size} tracks · ${formatTime(queueDurationMs)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         TextButton(
                             onClick = { playlistName = ""; tracksToCreate = playback.queue; showCreatePlaylistDialog = true },
@@ -622,7 +627,22 @@ private fun QueueRow(
             ) {
                     Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface, fontWeight = if (current) FontWeight.Bold else FontWeight.Medium)
                     val artist = track.artist.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) } ?: "Unknown artist"
-                    Text(if (current) "Playing next · $artist" else artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (current) "Playing next · $artist" else artist,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            formatTime(track.durationMs),
+                            modifier = Modifier.padding(start = 8.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
             }
             Box(
                 Modifier.size(48.dp)

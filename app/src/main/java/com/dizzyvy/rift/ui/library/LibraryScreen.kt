@@ -832,6 +832,14 @@ fun LibraryScreen(
                                         }
                                     }
                                 }
+                                item {
+                                    Text(
+                                        "Shuffle skips tracks longer than 20 minutes.",
+                                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                                 items(songs, key = { it.uri.toString() }) { track ->
                                     TrackRow(
                                         track = track,
