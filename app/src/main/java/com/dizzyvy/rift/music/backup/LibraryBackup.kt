@@ -47,18 +47,19 @@ object LibraryBackupCodec {
         val root = JSONObject(contents)
         val formatVersion = root.optInt("formatVersion", -1)
         require(formatVersion in 1..FORMAT_VERSION) { "This backup version is not supported." }
-        val playlistsJson = root.getJSONArray("playlists")
-        val favoritesJson = root.getJSONArray("favorites")
+        val playlistsJson = root.optJSONArray("playlists") ?: JSONArray()
+        val favoritesJson = root.optJSONArray("favorites") ?: JSONArray()
         val historyJson = root.optJSONArray("playHistory") ?: JSONArray()
         val aliasesJson = root.optJSONObject("artistAliases") ?: JSONObject()
         val duplicatePairsJson = root.optJSONArray("notDuplicatePairs") ?: JSONArray()
         val playlists = buildList {
             for (index in 0 until playlistsJson.length()) {
                 val entry = playlistsJson.getJSONObject(index)
-                val name = entry.getString("name").trim()
+                val name = entry.optString("name", "").trim()
                 require(name.isNotEmpty()) { "Backup contains a playlist with no name." }
                 require(name.lowercase() !in RESERVED_NAMES) { "Backup uses a reserved automatic playlist name." }
-                add(BackupPlaylist(name, tracksFromJson(entry.getJSONArray("tracks"))))
+                val tracksJson = entry.optJSONArray("tracks") ?: JSONArray()
+                add(BackupPlaylist(name, tracksFromJson(tracksJson)))
             }
         }
         require(playlists.map { it.name.lowercase() }.distinct().size == playlists.size) { "Backup contains duplicate playlist names." }
@@ -98,7 +99,12 @@ object LibraryBackupCodec {
             }
         }
         val settingsJson = root.optJSONObject("settings") ?: JSONObject()
-        val importedSettings = buildMap { settingsJson.keys().forEach { key -> put(key, settingsJson.getString(key)) } }
+        val importedSettings = buildMap {
+            settingsJson.keys().forEach { key ->
+                val value = settingsJson.opt(key)
+                put(key, value?.toString() ?: "")
+            }
+        }
         val legacyAppearanceKeys = setOf("accentName", "textColor", "text_color")
         require(importedSettings.keys.all {
             it in SETTING_KEYS || (formatVersion == 1 && it in legacyAppearanceKeys)
@@ -120,7 +126,11 @@ object LibraryBackupCodec {
         settings["clickWheelSensitivity"]?.let { require(it.toFloatOrNull()?.let { value -> value in 0.5f..2f } == true) { "Backup contains an invalid click-wheel sensitivity." } }
         settings["clickWheelHaptics"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid click-wheel haptic setting." } }
         settings["hiddenFolders"]?.let { folders ->
-            val paths = JSONArray(folders)
+            val paths = when {
+                folders.isBlank() -> JSONArray()
+                folders.trimStart().startsWith("[") -> JSONArray(folders)
+                else -> JSONArray().apply { put(folders) }
+            }
             require(paths.length() <= 10_000) { "Backup contains too many hidden folders." }
             for (index in 0 until paths.length()) require(paths.optString(index).isNotBlank()) { "Backup contains an empty hidden-folder path." }
         }
