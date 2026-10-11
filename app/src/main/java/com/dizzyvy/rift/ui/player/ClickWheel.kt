@@ -71,12 +71,13 @@ fun ClickWheel(
                 .background(wheelColor)
                 .border(1.dp, wheelOutlineColor, CircleShape)
                 .pointerInput(queueOpen) {
+                    val wheelBounds = this.size
                     var previousAngle: Float? = null
                     var rotationEnabled = false
                     detectDragGestures(
                         onDragStart = { point ->
-                            rotationEnabled = radius(point, size.width, size.height) > centerRadius
-                            previousAngle = if (rotationEnabled) angle(point, size.width, size.height) else null
+                            rotationEnabled = radius(point, wheelBounds.width, wheelBounds.height) > centerRadius
+                            previousAngle = if (rotationEnabled) angle(point, wheelBounds.width, wheelBounds.height) else null
                             if (rotationEnabled) latestOnRotateStart.value()
                         },
                         onDragEnd = {
@@ -92,7 +93,7 @@ fun ClickWheel(
                             if (wasRotating) latestOnRotateEnd.value()
                         },
                     ) { change, _ ->
-                        val current = angle(change.position, size.width, size.height)
+                        val current = angle(change.position, wheelBounds.width, wheelBounds.height)
                         if (rotationEnabled) previousAngle?.let { old ->
                             var delta = current - old
                             if (delta > 180f) delta -= 360f

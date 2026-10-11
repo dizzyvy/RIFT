@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -42,6 +43,7 @@ internal class LibraryDialogActions(
 )
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun LibraryDialogs(
     state: LibraryUiState,
     selectedTracks: List<AudioTrack>,

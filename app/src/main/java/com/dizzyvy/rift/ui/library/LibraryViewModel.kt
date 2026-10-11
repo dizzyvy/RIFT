@@ -664,14 +664,14 @@ class LibraryViewModel(
     }
 
     fun openCollection(item: LibraryCollectionItem, kind: String) {
-        openGroup(item.title) { track ->
+        openGroup(item.title, predicate = { track ->
             when (kind) {
                 "Folders" -> folderPath(track) == item.id
                 "Genres" -> genreGroupLabel(track.genre) == item.title
                 "Years" -> (track.year.takeIf(::isValidLibraryYear)?.toString() ?: "Unknown") == item.id
                 else -> false
             }
-        }
+        })
     }
 
     fun setFolderHidden(path: String, hidden: Boolean, onComplete: () -> Unit = {}) {
