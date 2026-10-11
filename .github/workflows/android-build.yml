@@ -24,6 +24,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
