@@ -131,6 +131,7 @@ fun LibraryScreen(
     onDeleteTracks: (List<AudioTrack>) -> Unit,
     onNotDuplicate: (List<Uri>) -> Unit,
     onClearActionMessage: () -> Unit,
+    onClearBackupRestoreReport: () -> Unit,
     onOpenPlayer: () -> Unit,
     onPlayPause: () -> Unit,
     onShuffleAll: () -> Unit,
@@ -1034,6 +1035,21 @@ fun LibraryScreen(
                 }
             },
             confirmButton = { TextButton(onClick = onClearPlaylistImportReport) { Text("Done") } },
+        )
+    }
+    state.backupRestoreReport?.let { report ->
+        AlertDialog(
+            onDismissRequest = onClearBackupRestoreReport,
+            title = { ShrikhandHeading("Backup restored", MaterialTheme.typography.headlineSmall) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${report.playlistCount} playlists and ${report.favoriteCount} favorites restored.")
+                    if (report.missingTrackCount > 0) {
+                        Text("${report.missingTrackCount} track(s) could not be matched in the current library.")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = onClearBackupRestoreReport) { Text("Done") } },
         )
     }
 

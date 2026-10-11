@@ -323,6 +323,7 @@ fun RiftApp(
                 onDeleteTracks = { tracks -> requestDeleteUris(tracks.map { it.uri }) },
                 onNotDuplicate = { uris -> libraryViewModel.setTracksNotDuplicate(uris, true) },
                 onClearActionMessage = libraryViewModel::clearActionMessage,
+                onClearBackupRestoreReport = libraryViewModel::clearBackupRestoreReport,
                 onCategory = { category ->
                     selectedCategory = category
                     libraryViewModel.selectCategory(category)

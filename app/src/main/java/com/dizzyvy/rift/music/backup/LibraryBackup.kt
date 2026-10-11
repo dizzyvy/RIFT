@@ -1,13 +1,16 @@
 package com.dizzyvy.rift.music.backup
 
 import com.dizzyvy.rift.music.library.BackupPlaylist
+import com.dizzyvy.rift.music.library.BackupHistoryEntry
+import com.dizzyvy.rift.music.library.BackupDuplicatePair
 import com.dizzyvy.rift.music.library.BackupTrackRef
 import com.dizzyvy.rift.music.library.LibraryBackupSnapshot
+import com.dizzyvy.rift.music.library.normalizeArtistName
 import org.json.JSONArray
 import org.json.JSONObject
 
 object LibraryBackupCodec {
-    private const val FORMAT_VERSION = 2
+    private const val FORMAT_VERSION = 3
     private const val MAX_ENTRIES = 100_000
 
     fun encode(snapshot: LibraryBackupSnapshot): String = JSONObject()
@@ -18,6 +21,24 @@ object LibraryBackupCodec {
             }
         })
         .put("favorites", tracksToJson(snapshot.favorites))
+        .put("playHistory", JSONArray().apply {
+            snapshot.playHistory.forEach { entry ->
+                put(
+                    JSONObject()
+                        .put("track", trackToJson(entry.track))
+                        .put("playCount", entry.playCount)
+                        .put("lastPlayedAtMs", entry.lastPlayedAtMs),
+                )
+            }
+        })
+        .put("artistAliases", JSONObject().apply {
+            snapshot.artistAliases.forEach { (alias, canonical) -> put(alias, canonical) }
+        })
+        .put("notDuplicatePairs", JSONArray().apply {
+            snapshot.notDuplicatePairs.forEach { pair ->
+                put(JSONObject().put("first", trackToJson(pair.first)).put("second", trackToJson(pair.second)))
+            }
+        })
         .put("settings", JSONObject(snapshot.settings))
         .toString(2)
 
@@ -28,7 +49,9 @@ object LibraryBackupCodec {
         require(formatVersion in 1..FORMAT_VERSION) { "This backup version is not supported." }
         val playlistsJson = root.getJSONArray("playlists")
         val favoritesJson = root.getJSONArray("favorites")
-        require(playlistsJson.length() + favoritesJson.length() <= MAX_ENTRIES) { "Backup contains too many entries." }
+        val historyJson = root.optJSONArray("playHistory") ?: JSONArray()
+        val aliasesJson = root.optJSONObject("artistAliases") ?: JSONObject()
+        val duplicatePairsJson = root.optJSONArray("notDuplicatePairs") ?: JSONArray()
         val playlists = buildList {
             for (index in 0 until playlistsJson.length()) {
                 val entry = playlistsJson.getJSONObject(index)
@@ -39,6 +62,41 @@ object LibraryBackupCodec {
             }
         }
         require(playlists.map { it.name.lowercase() }.distinct().size == playlists.size) { "Backup contains duplicate playlist names." }
+        val entryCount = playlists.sumOf { it.tracks.size } + favoritesJson.length() +
+            historyJson.length() + duplicatePairsJson.length() * 2 + aliasesJson.length()
+        require(entryCount <= MAX_ENTRIES) { "Backup contains too many entries." }
+        val playHistory = buildList {
+            for (index in 0 until historyJson.length()) {
+                val entry = historyJson.getJSONObject(index)
+                val playCount = entry.getInt("playCount")
+                val lastPlayedAtMs = entry.getLong("lastPlayedAtMs")
+                require(playCount >= 0 && lastPlayedAtMs >= 0L) { "Backup contains invalid play history." }
+                add(BackupHistoryEntry(trackFromJson(entry.getJSONObject("track")), playCount, lastPlayedAtMs))
+            }
+        }
+        val artistAliases = buildMap {
+            aliasesJson.keys().forEach { alias ->
+                val canonical = aliasesJson.getString(alias).trim()
+                require(
+                    alias.isNotBlank() &&
+                        canonical.isNotBlank() &&
+                        normalizeArtistName(alias) != normalizeArtistName(canonical),
+                ) { "Backup contains an invalid artist alias." }
+                put(alias, canonical)
+            }
+        }
+        require(artistAliases.keys.map(::normalizeArtistName).distinct().size == artistAliases.size) {
+            "Backup contains duplicate artist aliases."
+        }
+        val notDuplicatePairs = buildList {
+            for (index in 0 until duplicatePairsJson.length()) {
+                val pair = duplicatePairsJson.getJSONObject(index)
+                val first = trackFromJson(pair.getJSONObject("first"))
+                val second = trackFromJson(pair.getJSONObject("second"))
+                require(first.uri != second.uri) { "Backup contains an invalid duplicate exclusion." }
+                add(BackupDuplicatePair(first, second))
+            }
+        }
         val settingsJson = root.optJSONObject("settings") ?: JSONObject()
         val importedSettings = buildMap { settingsJson.keys().forEach { key -> put(key, settingsJson.getString(key)) } }
         val legacyAppearanceKeys = setOf("accentName", "textColor", "text_color")
@@ -66,24 +124,48 @@ object LibraryBackupCodec {
             require(paths.length() <= 10_000) { "Backup contains too many hidden folders." }
             for (index in 0 until paths.length()) require(paths.optString(index).isNotBlank()) { "Backup contains an empty hidden-folder path." }
         }
-        return LibraryBackupSnapshot(playlists, tracksFromJson(favoritesJson), settings)
+        return LibraryBackupSnapshot(
+            playlists = playlists,
+            favorites = tracksFromJson(favoritesJson),
+            settings = settings,
+            playHistory = playHistory,
+            artistAliases = artistAliases,
+            notDuplicatePairs = notDuplicatePairs,
+        )
     }
 
     private fun tracksToJson(tracks: List<BackupTrackRef>) = JSONArray().apply {
-        tracks.forEach { track ->
-            put(JSONObject().put("uri", track.uri).put("title", track.title).put("artist", track.artist)
-                .put("album", track.album).put("durationMs", track.durationMs))
-        }
+        tracks.forEach { put(trackToJson(it)) }
     }
+
+    private fun trackToJson(track: BackupTrackRef): JSONObject = JSONObject()
+        .put("uri", track.uri)
+        .put("title", track.title)
+        .put("artist", track.artist)
+        .put("album", track.album)
+        .put("durationMs", track.durationMs)
+        .put("folderName", track.folderName)
 
     private fun tracksFromJson(array: JSONArray): List<BackupTrackRef> = buildList {
         require(array.length() <= MAX_ENTRIES) { "Backup contains too many tracks." }
         for (index in 0 until array.length()) {
-            val item = array.getJSONObject(index)
-            val uri = item.getString("uri").trim()
-            require(uri.isNotEmpty()) { "Backup contains a track without a URI." }
-            add(BackupTrackRef(uri, item.optString("title"), item.optString("artist"), item.optString("album"), item.optLong("durationMs")))
+            add(trackFromJson(array.getJSONObject(index)))
         }
+    }
+
+    private fun trackFromJson(item: JSONObject): BackupTrackRef {
+        val uri = item.getString("uri").trim()
+        val duration = item.optLong("durationMs")
+        require(uri.isNotEmpty()) { "Backup contains a track without a URI." }
+        require(duration >= 0L) { "Backup contains an invalid track duration." }
+        return BackupTrackRef(
+            uri = uri,
+            title = item.optString("title"),
+            artist = item.optString("artist"),
+            album = item.optString("album"),
+            durationMs = duration,
+            folderName = item.optString("folderName"),
+        )
     }
 
     private const val MAX_BACKUP_CHARS = 16 * 1024 * 1024

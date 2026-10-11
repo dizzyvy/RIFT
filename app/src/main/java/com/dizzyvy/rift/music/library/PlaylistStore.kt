@@ -12,9 +12,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 data class TrackPlayHistory(val playCount: Int, val lastPlayedAtMs: Long)
-data class BackupTrackRef(val uri: String, val title: String, val artist: String, val album: String, val durationMs: Long)
+data class BackupTrackRef(
+    val uri: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val durationMs: Long,
+    val folderName: String = "",
+)
 data class BackupPlaylist(val name: String, val tracks: List<BackupTrackRef>)
-data class LibraryBackupSnapshot(val playlists: List<BackupPlaylist>, val favorites: List<BackupTrackRef>, val settings: Map<String, String>)
+data class BackupHistoryEntry(val track: BackupTrackRef, val playCount: Int, val lastPlayedAtMs: Long)
+data class BackupDuplicatePair(val first: BackupTrackRef, val second: BackupTrackRef)
+data class LibraryBackupSnapshot(
+    val playlists: List<BackupPlaylist>,
+    val favorites: List<BackupTrackRef>,
+    val settings: Map<String, String>,
+    val playHistory: List<BackupHistoryEntry> = emptyList(),
+    val artistAliases: Map<String, String> = emptyMap(),
+    val notDuplicatePairs: List<BackupDuplicatePair> = emptyList(),
+)
 data class CachedArtwork(
     val missing: Boolean,
     val thumbnail: ByteArray?,
@@ -60,7 +76,14 @@ interface PlaylistStore {
     suspend fun loadSettings(): Map<String, String>
     suspend fun saveSettings(settings: Map<String, String>)
     suspend fun createBackupSnapshot(tracks: List<AudioTrack>): LibraryBackupSnapshot
-    suspend fun restoreBackupSnapshot(snapshot: LibraryBackupSnapshot, resolvedPlaylists: List<Pair<String, List<Uri>>>, resolvedFavorites: List<Uri>)
+    suspend fun restoreBackupSnapshot(
+        snapshot: LibraryBackupSnapshot,
+        resolvedPlaylists: List<Pair<String, List<Uri>>>,
+        resolvedFavorites: List<Uri>,
+        resolvedPlayHistory: Map<Uri, TrackPlayHistory>,
+        resolvedArtistAliases: Map<String, String>,
+        resolvedNotDuplicatePairs: List<Pair<Uri, Uri>>,
+    )
 }
 
 class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION), PlaylistStore {
@@ -450,6 +473,8 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 
     override suspend fun createBackupSnapshot(tracks: List<AudioTrack>): LibraryBackupSnapshot = withContext(Dispatchers.IO) {
         val byUri = tracks.associateBy { it.uri.toString() }
+        fun ref(uri: String): BackupTrackRef =
+            byUri[uri]?.let(::backupRef) ?: BackupTrackRef(uri, "", "", "", 0L)
         val playlists = readableDatabase.query("playlists", arrayOf("_id", "name"), null, null, null, null, "name COLLATE NOCASE ASC").use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
@@ -458,20 +483,74 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
                     val uris = readableDatabase.query("playlist_tracks", arrayOf("uri"), "playlist_id = ?", arrayOf(id.toString()), null, null, "position ASC").use { entries ->
                         buildList { while (entries.moveToNext()) add(entries.getString(0)) }
                     }
-                    add(BackupPlaylist(name, uris.map { uri -> byUri[uri]?.let(::backupRef) ?: BackupTrackRef(uri, "", "", "", 0L) }))
+                    add(BackupPlaylist(name, uris.map(::ref)))
                 }
             }
         }
-        val favorites = loadFavoriteUris().map { uri -> byUri[uri.toString()]?.let(::backupRef) ?: BackupTrackRef(uri.toString(), "", "", "", 0L) }
+        val favorites = loadFavoriteUris().map { uri -> ref(uri.toString()) }
+        val history = readableDatabase.query(
+            "track_history",
+            arrayOf("uri", "play_count", "last_played_ms"),
+            null,
+            null,
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        BackupHistoryEntry(
+                            track = ref(cursor.getString(0)),
+                            playCount = cursor.getInt(1),
+                            lastPlayedAtMs = cursor.getLong(2),
+                        ),
+                    )
+                }
+            }
+        }
+        val aliases = readableDatabase.query(
+            "artist_aliases",
+            arrayOf("alias_name", "canonical_name"),
+            null,
+            null,
+            null,
+            null,
+            "alias_key ASC",
+        ).use { cursor ->
+            buildMap { while (cursor.moveToNext()) put(cursor.getString(0), cursor.getString(1)) }
+        }
+        val notDuplicatePairs = readableDatabase.query(
+            "not_duplicate_pairs",
+            arrayOf("first_uri", "second_uri"),
+            null,
+            null,
+            null,
+            null,
+            "pair_key ASC",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(BackupDuplicatePair(ref(cursor.getString(0)), ref(cursor.getString(1))))
+                }
+            }
+        }
         val settings = loadSettings()
             .filterKeys { it != SETTING_LYRICS_TREE && it !in LEGACY_APPEARANCE_SETTINGS }
             .toMutableMap().apply {
             put(SETTING_HIDDEN_FOLDERS, org.json.JSONArray(loadHiddenFolderPaths().sorted()).toString())
         }
-        LibraryBackupSnapshot(playlists, favorites, settings)
+        LibraryBackupSnapshot(playlists, favorites, settings, history, aliases, notDuplicatePairs)
     }
 
-    override suspend fun restoreBackupSnapshot(snapshot: LibraryBackupSnapshot, resolvedPlaylists: List<Pair<String, List<Uri>>>, resolvedFavorites: List<Uri>) = withContext(Dispatchers.IO) {
+    override suspend fun restoreBackupSnapshot(
+        snapshot: LibraryBackupSnapshot,
+        resolvedPlaylists: List<Pair<String, List<Uri>>>,
+        resolvedFavorites: List<Uri>,
+        resolvedPlayHistory: Map<Uri, TrackPlayHistory>,
+        resolvedArtistAliases: Map<String, String>,
+        resolvedNotDuplicatePairs: List<Pair<Uri, Uri>>,
+    ) = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -483,11 +562,54 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
             db.delete("favorites", null, null)
             db.delete("app_settings", null, null)
             db.delete("hidden_folders", null, null)
+            db.delete("track_history", null, null)
+            db.delete("artist_aliases", null, null)
+            db.delete("not_duplicate_pairs", null, null)
             resolvedPlaylists.forEach { (name, tracks) ->
                 val id = db.insertOrThrow("playlists", null, ContentValues().apply { put("name", name) })
                 tracks.forEachIndexed { index, uri -> db.insertWithOnConflict("playlist_tracks", null, ContentValues().apply { put("playlist_id", id); put("uri", uri.toString()); put("position", index) }, SQLiteDatabase.CONFLICT_IGNORE) }
             }
             resolvedFavorites.forEach { uri -> db.insertWithOnConflict("favorites", null, ContentValues().apply { put("uri", uri.toString()) }, SQLiteDatabase.CONFLICT_IGNORE) }
+            resolvedPlayHistory.forEach { (uri, history) ->
+                db.insertWithOnConflict(
+                    "track_history",
+                    null,
+                    ContentValues().apply {
+                        put("uri", uri.toString())
+                        put("play_count", history.playCount)
+                        put("last_played_ms", history.lastPlayedAtMs)
+                    },
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                )
+            }
+            resolvedArtistAliases.forEach { (alias, canonical) ->
+                db.insertWithOnConflict(
+                    "artist_aliases",
+                    null,
+                    ContentValues().apply {
+                        put("alias_key", normalizeArtistName(alias))
+                        put("alias_name", alias)
+                        put("canonical_name", canonical)
+                    },
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                )
+            }
+            resolvedNotDuplicatePairs.forEach { (first, second) ->
+                val firstUri = first.toString()
+                val secondUri = second.toString()
+                if (firstUri != secondUri) {
+                    db.insertWithOnConflict(
+                        "not_duplicate_pairs",
+                        null,
+                        ContentValues().apply {
+                            put("pair_key", duplicatePairKey(firstUri, secondUri))
+                            put("first_uri", minOf(firstUri, secondUri))
+                            put("second_uri", maxOf(firstUri, secondUri))
+                        },
+                        SQLiteDatabase.CONFLICT_IGNORE,
+                    )
+                }
+            }
             snapshot.settings.forEach { (key, value) -> db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", key); put("value", value) }, SQLiteDatabase.CONFLICT_REPLACE) }
             if (localLyricsTree != null) db.insertWithOnConflict("app_settings", null, ContentValues().apply { put("key", SETTING_LYRICS_TREE); put("value", localLyricsTree) }, SQLiteDatabase.CONFLICT_REPLACE)
             val hiddenFolders = org.json.JSONArray(snapshot.settings[SETTING_HIDDEN_FOLDERS] ?: "[]")
@@ -762,7 +884,14 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 fun duplicatePairKey(firstUri: String, secondUri: String): String =
     JSONArray().put(minOf(firstUri, secondUri)).put(maxOf(firstUri, secondUri)).toString()
 
-private fun backupRef(track: AudioTrack) = BackupTrackRef(track.uri.toString(), track.title, track.artist, track.album, track.durationMs)
+private fun backupRef(track: AudioTrack) = BackupTrackRef(
+    track.uri.toString(),
+    track.title,
+    track.artist,
+    track.album,
+    track.durationMs,
+    track.relativePath.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\'),
+)
 
 private fun AudioTrack.toCacheJson() = JSONObject()
     .put("id", id).put("uri", uri.toString()).put("title", title).put("displayName", displayName)

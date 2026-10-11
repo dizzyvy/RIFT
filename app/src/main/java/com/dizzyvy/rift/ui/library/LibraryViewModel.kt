@@ -309,6 +309,7 @@ data class LibraryUiState(
     val activePlaylist: DevicePlaylist? = null,
     val actionMessage: String? = null,
     val playlistImportReport: PlaylistImportReport? = null,
+    val backupRestoreReport: BackupRestoreReport? = null,
     val sortOrder: String = "Title",
     val sortAscending: Boolean = true,
     val hideShortTracks: Boolean = false,
@@ -339,6 +340,12 @@ data class PlaylistImportReport(
     val matchedCount: Int,
     val totalCount: Int,
     val unmatchedEntries: List<String>,
+)
+
+data class BackupRestoreReport(
+    val playlistCount: Int,
+    val favoriteCount: Int,
+    val missingTrackCount: Int,
 )
 
 class LibraryViewModel(
@@ -860,16 +867,47 @@ class LibraryViewModel(
             runCatching {
                 val snapshot = LibraryBackupCodec.decode(contents)
                 val tracks = _state.value.tracks
-                val references = snapshot.playlists.sumOf { it.tracks.size } + snapshot.favorites.size
-                require(references == 0 || tracks.isNotEmpty()) { "Scan the music library before restoring playlists and favorites." }
+                val allReferences = buildList {
+                    snapshot.playlists.forEach { addAll(it.tracks) }
+                    addAll(snapshot.favorites)
+                    snapshot.playHistory.forEach { add(it.track) }
+                    snapshot.notDuplicatePairs.forEach { add(it.first); add(it.second) }
+                }
+                require(allReferences.isEmpty() || tracks.isNotEmpty()) {
+                    "Scan the music library before restoring track data."
+                }
                 val byUri = tracks.associateBy { it.uri.toString() }
                 val byMetadata = tracks.groupBy(::trackFingerprint)
-                fun resolve(ref: BackupTrackRef): AudioTrack? = byUri[ref.uri] ?: byMetadata[backupFingerprint(ref)]?.firstOrNull()
+                fun resolve(ref: BackupTrackRef): AudioTrack? {
+                    byUri[ref.uri]?.let { return it }
+                    if (ref.title.isBlank() && ref.artist.isBlank() && ref.album.isBlank() && ref.durationMs == 0L) return null
+                    val candidates = byMetadata[backupFingerprint(ref)].orEmpty()
+                    val folder = ref.folderName.trim()
+                    return candidates.firstOrNull { folder.isNotEmpty() && trackFolderName(it).equals(folder, ignoreCase = true) }
+                        ?: candidates.firstOrNull()
+                }
+                val resolvedByUri = allReferences.distinctBy { it.uri }.associate { it.uri to resolve(it) }
                 val resolvedPlaylists = snapshot.playlists.map { playlist -> playlist.name to playlist.tracks.mapNotNull { resolve(it)?.uri } }
                 val resolvedFavorites = snapshot.favorites.mapNotNull { resolve(it)?.uri }
-                val totalTrackRefs = snapshot.playlists.sumOf { it.tracks.size } + snapshot.favorites.size
-                val resolvedTrackRefs = resolvedPlaylists.sumOf { it.second.size } + resolvedFavorites.size
-                playlistStore.restoreBackupSnapshot(snapshot, resolvedPlaylists, resolvedFavorites)
+                val resolvedPlayHistory = snapshot.playHistory.mapNotNull { entry ->
+                    resolvedByUri[entry.track.uri]?.uri?.let { uri ->
+                        uri to TrackPlayHistory(entry.playCount, entry.lastPlayedAtMs)
+                    }
+                }.toMap()
+                val resolvedNotDuplicatePairs = snapshot.notDuplicatePairs.mapNotNull { pair ->
+                    val first = resolvedByUri[pair.first.uri]?.uri ?: return@mapNotNull null
+                    val second = resolvedByUri[pair.second.uri]?.uri ?: return@mapNotNull null
+                    if (first == second) null else first to second
+                }
+                val missingTrackCount = resolvedByUri.values.count { it == null }
+                playlistStore.restoreBackupSnapshot(
+                    snapshot,
+                    resolvedPlaylists,
+                    resolvedFavorites,
+                    resolvedPlayHistory,
+                    snapshot.artistAliases,
+                    resolvedNotDuplicatePairs,
+                )
                 val saved = playlistStore.loadSettings()
                 val current = _state.value
                 val sortOrder = saved[SETTING_SORT_ORDER]?.takeIf { it in SORT_ORDERS } ?: "Title"
@@ -881,6 +919,8 @@ class LibraryViewModel(
                 val wheelSensitivity = saved[SETTING_WHEEL_SENSITIVITY]?.toFloatOrNull()?.coerceIn(0.5f, 2f) ?: 1f
                 val wheelHaptics = saved[SETTING_WHEEL_HAPTICS]?.toBooleanStrictOrNull() ?: true
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
+                val favorites = playlistStore.loadFavoriteUris().mapTo(mutableSetOf()) { it.toString() }
+                val playHistory = playlistStore.loadPlayHistory().mapKeys { it.key.toString() }
                 _state.value = current.copy(
                     sortOrder = sortOrder,
                     sortAscending = sortAscending,
@@ -891,6 +931,12 @@ class LibraryViewModel(
                     clickWheelHaptics = wheelHaptics,
                     lyricsTreeUri = saved[SETTING_LYRICS_TREE],
                     hiddenFolderPaths = hiddenFolderPaths,
+                    favoriteUris = favorites,
+                    playHistory = playHistory,
+                    artistAliases = snapshot.artistAliases.mapKeys { normalizeArtistName(it.key) },
+                    duplicateGroups = emptyList(),
+                    visibleDuplicateGroups = emptyList(),
+                    duplicateGroupsLoaded = false,
                     visibleTracks = filterTracks(
                         current.tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) },
                         current.searchQuery,
@@ -900,7 +946,12 @@ class LibraryViewModel(
                         hideLongTracks,
                         hideLongTracksAfterMinutes,
                     ),
-                    actionMessage = "Backup restored. ${totalTrackRefs - resolvedTrackRefs} track(s) were not found.",
+                    actionMessage = null,
+                    backupRestoreReport = BackupRestoreReport(
+                        playlistCount = resolvedPlaylists.size,
+                        favoriteCount = resolvedFavorites.size,
+                        missingTrackCount = missingTrackCount,
+                    ),
                 )
                 onSettingsRestored(saved)
                 refreshPlaylists()
@@ -918,6 +969,17 @@ class LibraryViewModel(
         track.title.trim().lowercase(), normalizeArtistName(track.artist), track.album.trim().lowercase(),
         (track.durationMs / 1000L).toString(),
     ).joinToString("|")
+
+    private fun trackFolderName(track: AudioTrack): String {
+        val relativeFolder = track.relativePath.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
+        return relativeFolder.ifBlank {
+            track.filePath.substringBeforeLast('/').substringAfterLast('/').substringAfterLast('\\')
+        }
+    }
+
+    fun clearBackupRestoreReport() {
+        _state.value = _state.value.copy(backupRestoreReport = null)
+    }
 
     fun setFavorite(track: AudioTrack, favorite: Boolean) {
         viewModelScope.launch {
