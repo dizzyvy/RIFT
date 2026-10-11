@@ -13,9 +13,15 @@ This file gives coding agents a reliable starting point for work in this reposit
 
 ## Setup and commands
 
-No setup, build, test, or lint command is recorded here yet. Discover the correct commands from the checked-in README, manifests, task runners, CI workflows, and scripts before running them. Use the existing lockfile and package manager where applicable. Do not invent a command or claim that a check passed unless it was actually run and its result observed.
+Use JDK 17 and Android SDK Platform 37. The checked-in Android CI workflow runs:
 
-When a verified command is missing from the README or this guide and would help future contributors, document it in the appropriate project documentation as part of the task when in scope.
+```sh
+./gradlew --no-daemon testDebugUnitTest assembleDebug
+```
+
+For a focused local check, the corresponding Gradle tasks are `./gradlew testDebugUnitTest` and `./gradlew assembleDebug`. The APK output is `app/build/outputs/apk/debug/app-debug.apk`. These commands are read from the project configuration and CI workflow; do not claim a check passed unless it was actually run and its result observed.
+
+Do not add setup, lint, or test tooling without first checking the existing manifests, dependency catalog, and workflows. Document verified workflow changes in the README and this guide when in scope.
 
 ## Implementation practices
 

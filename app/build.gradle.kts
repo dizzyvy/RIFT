@@ -49,5 +49,8 @@ dependencies {
     implementation(libs.androidx.media3.common.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
