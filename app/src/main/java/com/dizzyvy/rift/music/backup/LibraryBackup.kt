@@ -102,15 +102,22 @@ object LibraryBackupCodec {
         val importedSettings = buildMap {
             settingsJson.keys().forEach { key ->
                 val value = settingsJson.opt(key)
-                put(key, value?.toString() ?: "")
+                val text = when (value) {
+                    null, JSONObject.NULL -> ""
+                    is String -> value
+                    is Number, is Boolean -> value.toString()
+                    is JSONArray, is JSONObject -> value.toString()
+                    else -> value.toString()
+                }
+                put(key, text)
             }
         }
         val legacyAppearanceKeys = setOf("accentName", "textColor", "text_color")
-        require(importedSettings.keys.all {
-            it in SETTING_KEYS || (formatVersion == 1 && it in legacyAppearanceKeys)
-        }) { "Backup contains unknown settings." }
-        val settings = importedSettings.filterKeys { it !in legacyAppearanceKeys }.toMutableMap()
-        if (formatVersion == 1) settings["themeMode"] = "system"
+        val settings = importedSettings
+            .filterKeys { it in SETTING_KEYS || (formatVersion == 1 && it in legacyAppearanceKeys) }
+            .filterKeys { it !in legacyAppearanceKeys }
+            .toMutableMap()
+        if (formatVersion == 1) settings["themeMode"] = settings["themeMode"] ?: "system"
         settings["themeMode"]?.let {
             require(it in setOf("system", "light", "dark")) { "Backup contains an invalid theme." }
         }
@@ -126,10 +133,11 @@ object LibraryBackupCodec {
         settings["clickWheelSensitivity"]?.let { require(it.toFloatOrNull()?.let { value -> value in 0.5f..2f } == true) { "Backup contains an invalid click-wheel sensitivity." } }
         settings["clickWheelHaptics"]?.let { require(it == "true" || it == "false") { "Backup contains an invalid click-wheel haptic setting." } }
         settings["hiddenFolders"]?.let { folders ->
+            val normalized = folders.trim()
             val paths = when {
-                folders.isBlank() -> JSONArray()
-                folders.trimStart().startsWith("[") -> JSONArray(folders)
-                else -> JSONArray().apply { put(folders) }
+                normalized.isEmpty() -> JSONArray()
+                normalized.trimStart().startsWith("[") -> runCatching { JSONArray(normalized) }.getOrElse { JSONArray().apply { put(normalized) } }
+                else -> JSONArray().apply { put(normalized) }
             }
             require(paths.length() <= 10_000) { "Backup contains too many hidden folders." }
             for (index in 0 until paths.length()) require(paths.optString(index).isNotBlank()) { "Backup contains an empty hidden-folder path." }
