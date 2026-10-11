@@ -6,9 +6,9 @@ The launcher uses the RIFT Queen artwork. The Android application ID remains sta
 
 ## **WORK IN PROGRESS — NOT RELEASE READY**
 
-Work has continued beyond the original checkpoint. Phase 3 UI/UX, Phase 4 search, the main Phase 5 performance work, Phase 6 backup integrity, and Phase 7 correctness updates have been implemented and committed locally. Phase 5 is not fully complete: the planned `LibraryScreen.kt` component split remains outstanding. Phase 8 tests, CI integration, and documentation are in progress. The app version remains **0.12.0**.
+Work has continued beyond the original checkpoint. Phase 3 UI/UX, Phase 4 search, Phase 5 performance work and the `LibraryScreen.kt` component split, Phase 6 backup integrity, and Phase 7 correctness updates have been implemented. Phase 8 regression tests, CI integration, and documentation are present but still require verification. The app version remains **0.12.0**.
 
-No Gradle build or test has been run for this work. Do not assume or claim that the app compiles or that tests pass. The recent phase commits are local and have not been pushed.
+No Gradle build or test has been run for this work. Do not assume or claim that the app compiles or that tests pass. The branch changes are local and have not been pushed.
 
 ### Work since the original checkpoint
 
@@ -23,6 +23,16 @@ The work includes duplicate grouping and selection improvements, normalized/debo
 - `app/src/main/java/com/dizzyvy/rift/music/playback/PlaybackService.kt`
 - `app/src/main/java/com/dizzyvy/rift/ui/RiftApp.kt`
 - `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryScreen.kt`
+- `app/src/main/java/com/dizzyvy/rift/ui/library/BrowseRows.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/DuplicatesScreen.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/FolderList.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryActions.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryDialogs.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/MiniPlayer.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/PlaylistsTab.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/SettingsSheet.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/SongsList.kt` (new)
+- `app/src/main/java/com/dizzyvy/rift/ui/library/TrackRow.kt` (new)
 - `app/src/main/java/com/dizzyvy/rift/ui/library/LibraryViewModel.kt`
 - `app/src/main/java/com/dizzyvy/rift/ui/player/NowPlayingScreen.kt`
 - `app/src/test/java/com/dizzyvy/rift/music/backup/LibraryBackupCodecTest.kt` (new)
@@ -40,9 +50,9 @@ Finish the planned Phase 5 `LibraryScreen.kt` split and Phase 8 coverage, CI, an
 
 **Immediate next steps:**
 
-1. Run the configured `testDebugUnitTest` and `assembleDebug` CI workflow and resolve any failures; these checks have not been run locally.
-2. Complete the `LibraryScreen.kt` split in a focused change, preserving existing behavior.
-3. Expand the tests for any remaining acceptance criteria, then review the full diff and CI results before considering the work complete.
+1. Review the complete branch diff and obtain the remote CI results; the workflow runs `testDebugUnitTest` before `assembleDebug`.
+2. Compare the current regression tests with the acceptance criteria in the original improvement prompt and add any missing focused coverage.
+3. Resolve any remote CI failures before treating this work as verified.
 4. Keep version `0.12.0`, application/database identity, and existing user data unchanged; do not treat this branch as release-ready before verification.
 
 ## Requirements
@@ -69,7 +79,7 @@ Run the local JVM unit tests with:
 ./gradlew testDebugUnitTest
 ```
 
-The Android CI workflow runs unit tests and assembles the debug APK for pushes and pull requests. No Gradle task was run while preparing this work.
+The Android CI workflow runs `testDebugUnitTest` and then `assembleDebug` as separate ordered steps for pushes, pull requests, and manual runs. No Gradle task was run while preparing this work.
 
 ## Features
 
