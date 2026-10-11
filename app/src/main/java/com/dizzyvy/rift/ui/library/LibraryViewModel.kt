@@ -32,12 +32,41 @@ import com.dizzyvy.rift.music.model.AudioTrack
 import com.dizzyvy.rift.music.backup.LibraryBackupCodec
 import com.dizzyvy.rift.music.playback.PlaybackController
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.text.Normalizer
+import java.util.Locale
+
+private val searchCombiningMarks = Regex("\\p{M}+")
+private val searchPunctuation = Regex("[^\\p{L}\\p{N}\\s]")
+private val searchWhitespace = Regex("\\s+")
+
+internal fun normalizeLibrarySearchText(value: String): String =
+    Normalizer.normalize(value.lowercase(Locale.ROOT).replace("$", "s").replace("&", " and "), Normalizer.Form.NFD)
+        .replace(searchCombiningMarks, "")
+        .replace(searchPunctuation, " ")
+        .replace(searchWhitespace, " ")
+        .trim()
+
+private fun matchesNormalizedSearch(query: String, fields: List<String>): Boolean {
+    val tokens = normalizeLibrarySearchText(query).split(' ').filter(String::isNotBlank)
+    if (tokens.isEmpty()) return true
+    val searchable = fields.joinToString(" ", transform = ::normalizeLibrarySearchText)
+    return tokens.all { it in searchable }
+}
+
+private data class TrackSearchDocument(
+    val text: String,
+    val fields: List<String>,
+)
 
 private fun folderPath(track: AudioTrack): String = track.relativePath.trimEnd('/').ifBlank {
     track.filePath.substringBeforeLast('/', "")
@@ -238,7 +267,7 @@ internal fun buildDuplicateGroups(
 private fun filterDuplicateGroups(groups: List<DuplicateGroup>, query: String): List<DuplicateGroup> =
     groups.filter { group ->
         query.isBlank() || group.tracks.any { track ->
-            listOf(track.title, track.artist, track.album, track.filePath).any { it.contains(query, ignoreCase = true) }
+            matchesNormalizedSearch(query, listOf(track.title, track.artist, track.album, track.displayName, track.filePath))
         }
     }
 
@@ -301,6 +330,8 @@ class LibraryViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
     private var refreshAfterCurrentLoad = false
+    private var searchJob: Job? = null
+    private var trackSearchIndex: Map<String, TrackSearchDocument> = emptyMap()
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
     init {
@@ -396,6 +427,7 @@ class LibraryViewModel(
                 val cachedTracks = playlistStore.loadCachedTracks().map(::cleanTrackMetadata)
                 val artistAliases = playlistStore.loadArtistAliases()
                 if (_state.value.tracks.isEmpty() && cachedTracks.isNotEmpty()) {
+                    rebuildTrackSearchIndex(cachedTracks)
                     val current = _state.value
                     val cachedHidden = playlistStore.loadHiddenFolderPaths()
                     _state.value = current.copy(
@@ -457,6 +489,7 @@ class LibraryViewModel(
                 if (scan.tracks.isNotEmpty()) playlistStore.cacheTracks(generation, scan.tracks)
                 if (scan.complete) playlistStore.finishTrackCacheRefresh(generation)
                 val tracks = if (scan.complete || cachedTracks.isEmpty()) cleanedScannedTracks else cachedTracks
+                if (scan.complete || cachedTracks.isEmpty()) rebuildTrackSearchIndex(tracks)
                 val hiddenFolderPaths = playlistStore.loadHiddenFolderPaths()
                 val availableTracks = tracks.filterNot { folderIsHidden(it, hiddenFolderPaths) }
                 val playlists = repository.loadPlaylists() + playlistStore.loadPlaylists()
@@ -524,16 +557,73 @@ class LibraryViewModel(
         _state.value = current.copy(
             category = if (query.isBlank() && current.category == "Search") "Songs" else current.category,
             searchQuery = query,
-            visibleTracks = filterTracks(availableTracks(current), query, current.sortOrder, current.hideShortTracks),
-            visibleArtists = filterArtists(current.artists, query),
-            visibleAlbums = filterAlbums(current.albums, query),
-            visiblePlaylists = filterPlaylists(current.playlists, query),
-            visibleFolders = filterCollections(current.folders, query),
-            visibleHiddenFolders = filterCollections(current.hiddenFolders, query),
-            visibleGenres = filterCollections(current.genres, query),
-            visibleYears = filterCollections(current.years, query),
-            visibleDuplicateGroups = filterDuplicateGroups(current.duplicateGroups, query),
         )
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            if (query.isNotBlank()) delay(150L)
+            val base = _state.value
+            if (base.searchQuery != query) return@launch
+            val filtered = withContext(Dispatchers.Default) {
+                val available = availableTracks(base)
+                FilteredLibraryResults(
+                    tracks = filterTracks(
+                        available,
+                        query,
+                        base.sortOrder,
+                        base.hideShortTracks,
+                        base.sortAscending,
+                        base.hideLongTracks,
+                        base.hideLongTracksAfterMinutes,
+                    ),
+                    artists = filterArtists(base.artists, query),
+                    albums = filterAlbums(base.albums, query),
+                    playlists = filterPlaylists(base.playlists, query),
+                    folders = filterCollections(base.folders, query),
+                    hiddenFolders = filterCollections(base.hiddenFolders, query),
+                    genres = filterCollections(base.genres, query),
+                    years = filterCollections(base.years, query),
+                    duplicateGroups = filterDuplicateGroups(base.duplicateGroups, query),
+                )
+            }
+            if (_state.value.searchQuery == query) {
+                _state.value = _state.value.copy(
+                    visibleTracks = filtered.tracks,
+                    visibleArtists = filtered.artists,
+                    visibleAlbums = filtered.albums,
+                    visiblePlaylists = filtered.playlists,
+                    visibleFolders = filtered.folders,
+                    visibleHiddenFolders = filtered.hiddenFolders,
+                    visibleGenres = filtered.genres,
+                    visibleYears = filtered.years,
+                    visibleDuplicateGroups = filtered.duplicateGroups,
+                )
+            }
+        }
+    }
+
+    private data class FilteredLibraryResults(
+        val tracks: List<AudioTrack>,
+        val artists: List<ArtistBrowseItem>,
+        val albums: List<AlbumBrowseItem>,
+        val playlists: List<DevicePlaylist>,
+        val folders: List<LibraryCollectionItem>,
+        val hiddenFolders: List<LibraryCollectionItem>,
+        val genres: List<LibraryCollectionItem>,
+        val years: List<LibraryCollectionItem>,
+        val duplicateGroups: List<DuplicateGroup>,
+    )
+
+    private fun rebuildTrackSearchIndex(tracks: List<AudioTrack>) {
+        trackSearchIndex = tracks.associate { track ->
+            val fields = listOf(
+                track.title,
+                track.artist,
+                track.album,
+                track.displayName,
+                track.filePath,
+            ).map(::normalizeLibrarySearchText)
+            track.uri.toString() to TrackSearchDocument(fields.joinToString(" "), fields)
+        }
     }
 
     fun openCollection(item: LibraryCollectionItem, kind: String) {
@@ -1077,16 +1167,18 @@ class LibraryViewModel(
     }
 
     private fun filterCollections(items: List<LibraryCollectionItem>, query: String): List<LibraryCollectionItem> =
-        items.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) || it.subtitle.contains(query.trim(), ignoreCase = true) }
+        items.filter {
+            query.isBlank() || matchesNormalizedSearch(query, listOf(it.title, it.subtitle))
+        }
 
     private fun filterPlaylists(playlists: List<DevicePlaylist>, query: String): List<DevicePlaylist> =
-        playlists.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+        playlists.filter { query.isBlank() || matchesNormalizedSearch(query, listOf(it.name)) }
 
     private fun filterArtists(artists: List<ArtistBrowseItem>, query: String): List<ArtistBrowseItem> =
-        artists.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+        artists.filter { query.isBlank() || matchesNormalizedSearch(query, listOf(it.name)) }
 
     private fun filterAlbums(albums: List<AlbumBrowseItem>, query: String): List<AlbumBrowseItem> =
-        albums.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) || it.artist.contains(query.trim(), ignoreCase = true) }
+        albums.filter { query.isBlank() || matchesNormalizedSearch(query, listOf(it.title, it.artist)) }
 
     private fun filterTracks(
         tracks: List<AudioTrack>,
@@ -1097,12 +1189,15 @@ class LibraryViewModel(
         hideLongTracks: Boolean = _state.value.hideLongTracks,
         hideLongTracksAfterMinutes: Int = _state.value.hideLongTracksAfterMinutes,
     ): List<AudioTrack> {
-        val needle = query.trim()
+        val needle = normalizeLibrarySearchText(query)
+        val queryTokens = needle.split(' ').filter(String::isNotBlank)
         val filtered = tracks.filter { track ->
             (!hideShortTracks || track.durationMs >= 30_000L) &&
                 (!hideLongTracks || track.durationMs <= hideLongTracksAfterMinutes * MILLISECONDS_PER_MINUTE) &&
-                (needle.isEmpty() || track.title.contains(needle, ignoreCase = true) ||
-                    track.artist.contains(needle, ignoreCase = true) || track.album.contains(needle, ignoreCase = true))
+                (queryTokens.isEmpty() || queryTokens.all { token ->
+                    token in (trackSearchIndex[track.uri.toString()]?.text
+                        ?: normalizeLibrarySearchText("${track.title} ${track.artist} ${track.album} ${track.displayName} ${track.filePath}"))
+                })
         }
         val sorted = when (sortOrder) {
             "Artist" -> filtered.sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.albumArtist.ifBlank { it.artist } }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
@@ -1113,7 +1208,11 @@ class LibraryViewModel(
                     .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
             )
         }
-        return if (ascending) sorted else sorted.asReversed()
+        val ordered = if (ascending) sorted else sorted.asReversed()
+        return if (queryTokens.isEmpty()) ordered else ordered.sortedBy { track ->
+            val fields = trackSearchIndex[track.uri.toString()]?.fields.orEmpty()
+            if (fields.any { it.startsWith(needle) }) 0 else 1
+        }
     }
 
     private companion object {
