@@ -27,6 +27,32 @@ When a verified command is missing from the README or this guide and would help 
 - Update relevant documentation and examples when behavior, setup, or configuration changes.
 - Do not edit generated files directly when the repository provides a source or generation workflow; confirm that workflow first.
 
+## Canonical RIFT logo assets
+
+The canonical logo assets are currently stored on the branch `copilot/rift-logo-transfer`, not on `main`:
+
+- `branding/rift-logo.svg` — original vector SVG with a transparent background.
+- `branding/rift-logo-transparent.png` — original transparent PNG.
+
+Before using either asset from a normal checkout, explicitly fetch the transfer branch:
+
+```bash
+git fetch origin copilot/rift-logo-transfer
+```
+
+Inspect or copy the files from that branch; do not look for a separate assets repository:
+
+```bash
+git show origin/copilot/rift-logo-transfer:branding/rift-logo.svg
+git show origin/copilot/rift-logo-transfer:branding/rift-logo-transparent.png
+```
+
+If the task requires bringing the files into the current working branch, first check whether the destination paths already exist and whether they contain user work. Copy from `origin/copilot/rift-logo-transfer` only after that check, then review the diff before staging. Do not switch branches or discard the user's work just to access the assets.
+
+Treat these files as the source of truth. Prefer the SVG when a vector asset is suitable; use the PNG only where a raster image is required. Preserve the original artwork, dimensions, colors, proportions, and transparency. Do not redraw, reconstruct, recolor, crop, add a background, or overwrite these source assets. If the app needs another format or size, generate a separate derivative from the canonical source and leave the source files unchanged.
+
+Do not use the older `copilot/rift-logo-assets` branch; use `copilot/rift-logo-transfer` only.
+
 ## Verification
 
 - Find the narrowest relevant existing check from the repository's scripts, CI configuration, or documentation.
