@@ -26,7 +26,7 @@ RIFT is designed for Android 7.0 and newer. The exact experience and supported a
 
 ## Availability
 
-RIFT is in development. Public download and release information will be posted here when a release is available.
+RIFT is in development and is **not available on the Google Play Store**. A public download has not been announced yet. Release information will be posted here when it's ready.
 
 ---
 
