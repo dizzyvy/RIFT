@@ -1,37 +1,33 @@
 # RIFT
 
-A small, local music player for Android with a bright, click-wheel-era portable-player feel. The first version scans audio on the phone and removable storage, then plays it through Android's media session so lock-screen controls and Bluetooth/headset buttons work.
+**Your music. Your device. Your own listening experience.**
 
-## Requirements
-
-- Android Studio with JDK 17
-- Android SDK Platform 37 and Build Tools installed through SDK Manager
-- Android 7.0 (API 24) or newer; target SDK 36
-
-## Build a debug APK
-
-Open the project in Android Studio and allow Gradle sync to install the configured Gradle and Android components. Then run:
-
-```sh
-./gradlew assembleDebug
-```
-
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+RIFT is an Android music player built for people who keep their music locally. It pairs straightforward music-library browsing with a colorful interface inspired by classic portable music players and the click-wheel era.
 
 ## Features
 
-- Scans device and SD card audio through MediaStore
-- Browses Songs, Artists, Albums, and playlists already indexed on the device
-- Reads embedded album art from local audio files, with a colorful gradient fallback when art is missing or unreadable
-- Searches titles, artists, and albums
-- Plays tracks in the background with a Media3 session, system notification, lock-screen controls, and audio focus handling
-- Remembers the last track, position, shuffle, and repeat mode between launches
-- Provides a click wheel with tap controls, rotation seeking, haptic ticks, and an A–Z library index
-- Lets you select, remove, and reorder tracks in the playback queue
-- Uses Android's audio permission prompt and requests access only when the library is opened
+- **Your local music library** — Scan music stored on your phone and supported removable storage.
+- **Browse your way** — Explore songs, artists, albums, and playlists available on your device.
+- **Find tracks quickly** — Search by song title, artist, or album.
+- **Album artwork** — Display artwork embedded in your music files, with colorful gradients when artwork is unavailable.
+- **Background playback** — Keep listening while using other apps, with Android media notifications and lock-screen controls.
+- **Headset and Bluetooth controls** — Use supported playback buttons on connected accessories.
+- **A tactile, retro-inspired interface** — A click-wheel-style control, haptic feedback, and an A–Z library index bring a classic portable-player feel to browsing and listening.
+- **Manage your queue** — Select tracks, remove songs, and change their playback order.
+- **Pick up where you left off** — RIFT saves playback position and settings such as shuffle and repeat between launches.
 
-Playback formats depend on the codecs available on the phone. Android's built-in media decoders cover common MP3, AAC/M4A, Ogg Vorbis, WAV, and FLAC files; a particular encoding may still be unsupported by the device.
+## Audio support
 
-## Install on a phone
+RIFT plays local audio using Android's available media decoders. Common formats include MP3, AAC/M4A, Ogg Vorbis, WAV, and FLAC, though support can vary with the file's encoding and your device.
 
-Build `app/build/outputs/apk/debug/app-debug.apk`, copy it to the phone, open it in My Files, and approve Android's install prompt if shown. The debug APK is signed for development installs and is not a Play Store release.
+## Compatibility
+
+RIFT is designed for Android 7.0 and newer. The exact experience and supported audio encodings may vary by device.
+
+## Availability
+
+RIFT is in development. Public download and release information will be posted here when a release is available.
+
+---
+
+RIFT is focused on local music playback. It does not require a streaming subscription to play music stored on your device.
