@@ -4,6 +4,8 @@ import android.net.Uri
 import com.dizzyvy.rift.music.model.AudioTrack
 import com.dizzyvy.rift.music.playback.PlaybackHistoryTracker
 import com.dizzyvy.rift.ui.library.buildDuplicateGroups
+import com.dizzyvy.rift.ui.library.groupArtistAliasesByGroup
+import com.dizzyvy.rift.ui.library.firstIndexByLibrarySection
 import com.dizzyvy.rift.ui.library.normalizeLibrarySearchText
 import com.dizzyvy.rift.ui.library.selectedTracksInLibraryOrder
 import com.dizzyvy.rift.ui.library.shouldReuseCachedTracks
@@ -63,6 +65,26 @@ class LibraryRulesTest {
     fun searchNormalizationIgnoresAccentsPunctuationAndExpandsAmpersands() {
         assertEquals("beyonce and jay z", normalizeLibrarySearchText("Beyoncé & Jay-Z"))
         assertEquals("beyonce jay z", normalizeLibrarySearchText("Beyonce Jay Z"))
+    }
+
+    @Test
+    fun fastScrollIndexKeepsOnlyTheFirstPositionForEachSection() {
+        assertEquals(
+            mapOf('A' to 0, 'B' to 2, '#' to 3),
+            firstIndexByLibrarySection(listOf("Artist", "Another artist", "Band", "123")),
+        )
+    }
+
+    @Test
+    fun artistAliasesAreGroupedByResolvedCanonicalArtist() {
+        val aliases = mapOf(
+            "band" to "The Band",
+            "bandname" to "The Band",
+            "solo" to "Solo Artist",
+        )
+
+        assertEquals(setOf("band", "bandname"), groupArtistAliasesByGroup(aliases)["theband"])
+        assertEquals(setOf("solo"), groupArtistAliasesByGroup(aliases)["solo artist"])
     }
 
     @Test

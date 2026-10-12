@@ -248,21 +248,19 @@ class SqlitePlaylistStore(context: Context) : SQLiteOpenHelper(context.applicati
 
     override suspend fun loadCachedTracks(): List<AudioTrack> = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        val cachedRows = db.query("track_cache", arrayOf("uri", "payload"), null, null, null, null, "payload COLLATE NOCASE").use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
-            }
-        }
         val updates = mutableListOf<Pair<String, String>>()
-        val tracks = buildList {
-            cachedRows.forEach { (uri, payload) ->
-                try {
-                    val track = trackFromJson(JSONObject(payload))
-                    val cleanedTrack = cleanTrackMetadata(track)
-                    if (cleanedTrack !== track) updates += uri to cleanedTrack.toCacheJson().toString()
-                    add(cleanedTrack)
-                } catch (exception: org.json.JSONException) {
-                    android.util.Log.w(TAG, "Could not read cached track $uri", exception)
+        val tracks = db.query("track_cache", arrayOf("uri", "payload"), null, null, null, null, "payload COLLATE NOCASE").use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val uri = cursor.getString(0)
+                    try {
+                        val track = trackFromJson(JSONObject(cursor.getString(1)))
+                        val cleanedTrack = cleanTrackMetadata(track)
+                        if (cleanedTrack !== track) updates += uri to cleanedTrack.toCacheJson().toString()
+                        add(cleanedTrack)
+                    } catch (exception: org.json.JSONException) {
+                        android.util.Log.w(TAG, "Could not read cached track $uri", exception)
+                    }
                 }
             }
         }

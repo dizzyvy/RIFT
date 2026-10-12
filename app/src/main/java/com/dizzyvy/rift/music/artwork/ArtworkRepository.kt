@@ -12,7 +12,9 @@ import com.dizzyvy.rift.music.library.PlaylistStore
 import com.dizzyvy.rift.music.model.AudioTrack
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 data class Artwork(val bitmap: Bitmap, val encodedBytes: ByteArray)
@@ -31,6 +33,7 @@ class EmbeddedArtworkRepository(
 ) : ArtworkRepository {
     private val resolver = context.applicationContext.contentResolver
     private val decodeSemaphore = Semaphore(MAX_CONCURRENT_DECODES)
+    private val requestLocks = Array(ARTWORK_REQUEST_LOCK_COUNT) { Mutex() }
     private val cache = object : LruCache<String, CachedArtworkValue>(memoryCacheSizeKb()) {
         override fun sizeOf(key: String, value: CachedArtworkValue): Int {
             val artwork = value.artwork ?: return 1
@@ -48,6 +51,17 @@ class EmbeddedArtworkRepository(
         sourceDateModifiedSeconds: Long?,
     ): Artwork? = withContext(Dispatchers.IO) {
         val sizePx = sizeBucket(maxDimensionPx)
+        val requestLock = requestLocks[(31 * uri.toString().hashCode() + sizePx) and (ARTWORK_REQUEST_LOCK_COUNT - 1)]
+        requestLock.withLock {
+            loadArtwork(uri, sizePx, sourceDateModifiedSeconds)
+        }
+    }
+
+    private suspend fun loadArtwork(
+        uri: Uri,
+        sizePx: Int,
+        sourceDateModifiedSeconds: Long?,
+    ): Artwork? {
         val trackKey = trackKey(uri)
         val uriCacheKey = memoryKey(trackKey, sizePx)
         var sourceModifiedSeconds = sourceDateModifiedSeconds
@@ -55,7 +69,7 @@ class EmbeddedArtworkRepository(
         uriAliases.get(uriCacheKey)?.let { cachedKey ->
             val cachedModifiedSeconds = uriAliasDateModified.get(uriCacheKey)
             if (sourceModifiedSeconds == null || cachedModifiedSeconds == sourceModifiedSeconds) {
-                cache.get(cachedKey)?.artwork?.let { return@withContext it }
+                cache.get(cachedKey)?.artwork?.let { return it }
             } else {
                 albumKeys.remove(uri.toString())
             }
@@ -68,7 +82,7 @@ class EmbeddedArtworkRepository(
                 cachedTrack = playlistStore?.loadCachedTrack(uri)
                 sourceModifiedSeconds = cachedTrack?.dateModifiedSeconds ?: 0L
             }
-            if (missing.dateModifiedSeconds == sourceModifiedSeconds) return@withContext null
+            if (missing.dateModifiedSeconds == sourceModifiedSeconds) return null
             cache.remove(missingKey)
         }
         if (cachedTrack == null && (sourceModifiedSeconds == null || albumKeys.get(uri.toString()) == null)) {
@@ -80,13 +94,13 @@ class EmbeddedArtworkRepository(
         if (albumKeys.get(uri.toString()) == null) albumKeys.put(uri.toString(), artworkKey)
         memoryArtwork(artworkKey, sizePx)?.let {
             rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
-            return@withContext it
+            return it
         }
         val missingDateModified = playlistStore?.loadMissingArtworkDateModified(uri)
         if (missingDateModified != null) {
             if (missingDateModified == sourceModifiedSeconds) {
                 rememberMissing(trackKey, missingDateModified)
-                return@withContext null
+                return null
             }
             playlistStore.clearMissingArtwork(uri)
         }
@@ -95,17 +109,19 @@ class EmbeddedArtworkRepository(
             if (cached.entry.missing) {
                 if (cached.entry.dateModifiedSeconds == sourceModifiedSeconds) {
                     rememberMissing(trackKey, cached.entry.dateModifiedSeconds)
-                    return@withContext null
+                    return null
                 }
             } else if (cached.entry.dateModifiedSeconds == sourceModifiedSeconds) {
-                val artwork = cached.entry.thumbnail?.let { decodeArtwork(it, sizePx) }
+                val artwork = cached.entry.thumbnail?.let {
+                    decodeArtwork(it, sizePx, reuseEncodedBytes = cached.sizePx == sizePx)
+                }
                 if (artwork != null) {
                     cache.put(memoryKey(artworkKey, sizePx), CachedArtworkValue(artwork, sourceModifiedSeconds ?: 0L))
                     rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
                     if (cached.key != artworkKey || cached.sizePx != sizePx) {
                         playlistStore?.cacheArtwork(artworkKey, uri, sizePx, artwork.encodedBytes, sourceModifiedSeconds ?: 0L)
                     }
-                    return@withContext artwork
+                    return artwork
                 }
                 Log.w(TAG, "Ignoring invalid cached artwork for $uri")
             }
@@ -114,7 +130,7 @@ class EmbeddedArtworkRepository(
         try {
             memoryArtwork(artworkKey, sizePx)?.let {
                 rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
-                return@withContext it
+                return it
             }
             extractArtwork(uri, trackKey, artworkKey, sizePx, sourceModifiedSeconds ?: 0L)?.also {
                 rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
@@ -175,7 +191,11 @@ class EmbeddedArtworkRepository(
         return artwork
     }
 
-    private fun decodeArtwork(bytes: ByteArray, maxDimensionPx: Int): Artwork? {
+    private fun decodeArtwork(
+        bytes: ByteArray,
+        maxDimensionPx: Int,
+        reuseEncodedBytes: Boolean = false,
+    ): Artwork? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -185,13 +205,17 @@ class EmbeddedArtworkRepository(
             bytes.size,
             BitmapFactory.Options().apply { inSampleSize = calculateSample(bounds.outWidth, bounds.outHeight, maxDimensionPx) },
         ) ?: return null
-        val thumbnail = ByteArrayOutputStream().use { output ->
-            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
-                bitmap.recycle()
-                Log.w(TAG, "Could not encode artwork thumbnail")
-                return null
+        val thumbnail = if (reuseEncodedBytes) {
+            bytes
+        } else {
+            ByteArrayOutputStream().use { output ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
+                    bitmap.recycle()
+                    Log.w(TAG, "Could not encode artwork thumbnail")
+                    return null
+                }
+                output.toByteArray()
             }
-            output.toByteArray()
         }
         return Artwork(bitmap, thumbnail)
     }
@@ -237,6 +261,7 @@ class EmbeddedArtworkRepository(
     private companion object {
         const val TAG = "RIFTArtwork"
         const val MAX_CONCURRENT_DECODES = 4
+        const val ARTWORK_REQUEST_LOCK_COUNT = 64
         const val SMALL_ARTWORK_SIZE_PX = 192
         const val MAX_ARTWORK_SIZE_PX = 512
         const val MISSING_ARTWORK_SIZE_PX = 0

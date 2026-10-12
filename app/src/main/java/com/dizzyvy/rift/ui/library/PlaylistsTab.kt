@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
@@ -20,8 +21,8 @@ internal fun PlaylistsTab(
     artworkRepository: ArtworkRepository,
     actions: PlaylistActions,
 ) {
-    val smartPlaylists = playlists.filter(DevicePlaylist::isAuto)
-    val userPlaylists = playlists.filterNot(DevicePlaylist::isAuto)
+    val smartPlaylists = remember(playlists) { playlists.filter(DevicePlaylist::isAuto) }
+    val userPlaylists = remember(playlists) { playlists.filterNot(DevicePlaylist::isAuto) }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp),

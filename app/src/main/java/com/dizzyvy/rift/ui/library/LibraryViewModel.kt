@@ -38,6 +38,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.Normalizer
@@ -86,6 +89,14 @@ private fun folderIsHidden(track: AudioTrack, hiddenFolderPaths: Set<String>): B
         path.equals(hidden, ignoreCase = true) || path.startsWith("$hidden/", ignoreCase = true)
     }
 }
+
+internal fun groupArtistAliasesByGroup(aliases: Map<String, String>): Map<String, Set<String>> =
+    buildMap<String, MutableSet<String>> {
+        aliases.forEach { (alias, canonicalName) ->
+            val groupId = normalizeArtistName(resolveArtistAlias(canonicalName, aliases))
+            getOrPut(groupId) { linkedSetOf() }.add(alias)
+        }
+    }
 
 private fun buildFolderItems(tracks: List<AudioTrack>): List<LibraryCollectionItem> = tracks
     .mapNotNull { track -> folderPath(track).takeIf(String::isNotBlank)?.let { it to track } }
@@ -362,6 +373,7 @@ class LibraryViewModel(
     private val playback: PlaybackController,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryUiState())
+    private val settingsLoad = viewModelScope.async { playlistStore.loadSettings() }
     private var refreshAfterCurrentLoad = false
     private var searchJob: Job? = null
     private var visibleTracksJob: Job? = null
@@ -376,7 +388,7 @@ class LibraryViewModel(
 
     init {
         viewModelScope.launch {
-            runCatching { playlistStore.loadSettings() }.onSuccess { settings ->
+            runCatching { settingsLoad.await() }.onSuccess { settings ->
                 lastMediaStoreVersion = settings[SETTING_MEDIA_STORE_VERSION]
                 mediaStoreVersionLoaded = true
                 val current = _state.value
@@ -427,28 +439,11 @@ class LibraryViewModel(
         )
         viewModelScope.launch {
             try {
-                val cachedTracks = withContext(Dispatchers.Default) {
-                    playlistStore.loadCachedTracks().map(::cleanTrackMetadata)
-                }
+                val cachedTracks = playlistStore.loadCachedTracks()
                 if (!mediaStoreVersionLoaded) {
-                    lastMediaStoreVersion = playlistStore.loadSettings()[SETTING_MEDIA_STORE_VERSION]
+                    lastMediaStoreVersion = settingsLoad.await()[SETTING_MEDIA_STORE_VERSION]
                     mediaStoreVersionLoaded = true
                 }
-                val mediaStoreVersion = try {
-                    repository.libraryVersion()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (exception: Exception) {
-                    _state.value = _state.value.copy(
-                        actionMessage = exception.message ?: "Could not check the media library version.",
-                    )
-                    "unknown"
-                }
-                val reuseCachedTracks = shouldReuseCachedTracks(
-                    cachedTracksPresent = cachedTracks.isNotEmpty(),
-                    cachedVersion = lastMediaStoreVersion,
-                    currentVersion = mediaStoreVersion,
-                )
                 val artistAliases = playlistStore.loadArtistAliases()
                 if (_state.value.tracks.isEmpty() && cachedTracks.isNotEmpty()) {
                     rebuildTrackSearchIndex(cachedTracks)
@@ -490,6 +485,21 @@ class LibraryViewModel(
                         visiblePlaylists = filterPlaylists(cachedPlaylists, hydratedState.searchQuery),
                     )
                 }
+                val mediaStoreVersion = try {
+                    repository.libraryVersion()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (exception: Exception) {
+                    _state.value = _state.value.copy(
+                        actionMessage = exception.message ?: "Could not check the media library version.",
+                    )
+                    "unknown"
+                }
+                val reuseCachedTracks = shouldReuseCachedTracks(
+                    cachedTracksPresent = cachedTracks.isNotEmpty(),
+                    cachedVersion = lastMediaStoreVersion,
+                    currentVersion = mediaStoreVersion,
+                )
                 var scanComplete = reuseCachedTracks
                 val tracks = if (reuseCachedTracks) {
                     cachedTracks
@@ -1431,7 +1441,7 @@ class LibraryViewModel(
     private fun filterAlbums(albums: List<AlbumBrowseItem>, query: String): List<AlbumBrowseItem> =
         albums.filter { query.isBlank() || matchesNormalizedSearch(query, listOf(it.title, it.artist)) }
 
-    private fun filterTracks(
+    private suspend fun filterTracks(
         tracks: List<AudioTrack>,
         query: String,
         sortOrder: String,
@@ -1440,33 +1450,46 @@ class LibraryViewModel(
         hideLongTracks: Boolean = _state.value.hideLongTracks,
         hideLongTracksAfterMinutes: Int = _state.value.hideLongTracksAfterMinutes,
     ): List<AudioTrack> {
+        val coroutineContext = currentCoroutineContext()
         val needle = normalizeLibrarySearchText(query)
         val queryTokens = needle.split(' ').filter(String::isNotBlank)
-        val filtered = tracks.filter { track ->
-            (!hideShortTracks || track.durationMs >= 30_000L) &&
+        val filtered = ArrayList<AudioTrack>()
+        tracks.forEachIndexed { index, track ->
+            if (index % CANCELLATION_CHECK_INTERVAL == 0) coroutineContext.ensureActive()
+            val matches = (!hideShortTracks || track.durationMs >= 30_000L) &&
                 (!hideLongTracks || track.durationMs <= hideLongTracksAfterMinutes * MILLISECONDS_PER_MINUTE) &&
                 (queryTokens.isEmpty() || queryTokens.all { token ->
                     token in (trackSearchIndex[track.uri.toString()]?.text
                         ?: normalizeLibrarySearchText("${track.title} ${track.artist} ${track.album} ${track.displayName} ${track.filePath}"))
                 })
+            if (matches) filtered += track
         }
-        val sorted = when (sortOrder) {
-            "Artist" -> filtered.sortedWith(compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.albumArtist.ifBlank { it.artist } }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            "Date added" -> filtered.sortedWith(compareBy<AudioTrack> { it.dateAddedSeconds }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            "Duration" -> filtered.sortedWith(compareBy<AudioTrack> { it.durationMs }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            else -> filtered.sortedWith(
-                compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { sortableTitle(it.title) }
-                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
-            )
+        coroutineContext.ensureActive()
+        val sortComparator = when (sortOrder) {
+            "Artist" -> compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { it.albumArtist.ifBlank { it.artist } }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+            "Date added" -> compareBy<AudioTrack> { it.dateAddedSeconds }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+            "Duration" -> compareBy<AudioTrack> { it.durationMs }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+            else -> compareBy<AudioTrack, String>(String.CASE_INSENSITIVE_ORDER) { sortableTitle(it.title) }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+        }
+        val sorted = filtered.sortedWith { first, second ->
+            coroutineContext.ensureActive()
+            sortComparator.compare(first, second)
         }
         val ordered = if (ascending) sorted else sorted.asReversed()
-        return if (queryTokens.isEmpty()) ordered else ordered.sortedBy { track ->
-            val fields = trackSearchIndex[track.uri.toString()]?.fields.orEmpty()
-            if (fields.any { it.startsWith(needle) }) 0 else 1
+        return if (queryTokens.isEmpty()) ordered else ordered.sortedWith { first, second ->
+            coroutineContext.ensureActive()
+            val firstFields = trackSearchIndex[first.uri.toString()]?.fields.orEmpty()
+            val secondFields = trackSearchIndex[second.uri.toString()]?.fields.orEmpty()
+            secondFields.any { it.startsWith(needle) }.compareTo(firstFields.any { it.startsWith(needle) })
         }
     }
 
     private companion object {
+        const val CANCELLATION_CHECK_INTERVAL = 64
         const val SETTING_SORT_ORDER = "sortOrder"
         const val SETTING_SORT_ASCENDING = "sortAscending"
         const val SETTING_HIDE_SHORT_TRACKS = "hideShortTracks"

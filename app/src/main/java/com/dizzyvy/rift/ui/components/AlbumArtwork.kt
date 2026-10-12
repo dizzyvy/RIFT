@@ -30,6 +30,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.net.Uri
 
+private val FALLBACK_ARTWORK_COLORS = listOf(
+    Color(0xFFE95865),
+    Color(0xFF438CCD),
+    Color(0xFFFFC833),
+    Color(0xFF50A982),
+    Color(0xFF9B75BC),
+)
+
 @Composable
 fun AlbumArtwork(
     uri: Uri?,
@@ -61,8 +69,7 @@ fun AlbumArtwork(
         if (artwork != null) {
             Image(artwork.asImageBitmap(), contentDescription = "$title album artwork", modifier = Modifier.fillMaxSize(), contentScale = contentScale)
         } else {
-            val colors = listOf(Color(0xFFE95865), Color(0xFF438CCD), Color(0xFFFFC833), Color(0xFF50A982), Color(0xFF9B75BC))
-            val color = colors[(title.hashCode().toUInt().toLong() % colors.size).toInt()]
+            val color = FALLBACK_ARTWORK_COLORS[(title.hashCode().toUInt().toLong() % FALLBACK_ARTWORK_COLORS.size).toInt()]
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(color, color.copy(alpha = .65f)))), contentAlignment = Alignment.Center) {
                 if (fallbackInitial) {
                     Text(title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 24.sp)

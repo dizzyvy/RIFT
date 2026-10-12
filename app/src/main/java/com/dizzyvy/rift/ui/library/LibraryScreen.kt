@@ -61,6 +61,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.SnackbarDuration
@@ -76,7 +78,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -95,8 +96,6 @@ import com.dizzyvy.rift.music.library.librarySection
 import com.dizzyvy.rift.music.library.isValidLibraryYear
 import com.dizzyvy.rift.music.library.artistGroupKeys
 import com.dizzyvy.rift.music.library.albumGroupKey
-import com.dizzyvy.rift.music.library.normalizeArtistName
-import com.dizzyvy.rift.music.library.resolveArtistAlias
 import com.dizzyvy.rift.music.model.AudioTrack
 import com.dizzyvy.rift.music.playback.PlaybackSnapshot
 import com.dizzyvy.rift.ui.components.AlbumArtwork
@@ -169,14 +168,13 @@ fun LibraryScreen(
     onToggleFolderHidden: (String, Boolean, () -> Unit) -> Unit,
     onEnsureDuplicatesLoaded: () -> Unit,
 ) {
-    val listState = rememberLazyListState()
+    val listStateHolder = rememberSaveableStateHolder()
     val scope = rememberCoroutineScope()
     val tabScrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
-    val isTablet = LocalConfiguration.current.screenWidthDp >= 700
     var searchExpanded by remember { mutableStateOf(state.searchQuery.isNotBlank()) }
     var settingsSheetOpen by remember { mutableStateOf(false) }
     var filtersSheetOpen by remember { mutableStateOf(false) }
@@ -201,6 +199,11 @@ fun LibraryScreen(
     var pendingBulkDuplicateDelete by remember { mutableStateOf<List<AudioTrack>?>(null) }
     var artistToMerge by remember { mutableStateOf<ArtistBrowseItem?>(null) }
     var artistAliasInput by remember { mutableStateOf("") }
+    val visibleCategoryTabs = visibleLibraryCategoryTabs(state.searchQuery)
+    val artistAliasesGrouped = remember(state.artistAliases) { groupArtistAliasesByGroup(state.artistAliases) }
+    val latestCategory = rememberUpdatedState(state.category)
+    val latestBrowseTitle = rememberUpdatedState(state.browseTitle)
+    val latestOnCategory = rememberUpdatedState(onCategory)
     val songs = state.browseTracks ?: state.visibleTracks
     val libraryActions = LibraryActions(
         playTrack = onPlayTrack,
@@ -232,21 +235,19 @@ fun LibraryScreen(
             focusManager.clearFocus()
         }
     }
-    LaunchedEffect(state.category, state.searchQuery.isBlank(), isTablet) {
-        if (!isTablet) {
-            val bounds = snapshotFlow { tabBounds[state.category] to tabViewportBounds }
-                .first { (tab, viewport) -> tab != null && viewport != null }
-            val (tabLeft, tabRight) = requireNotNull(bounds.first)
-            val (viewportLeft, viewportRight) = requireNotNull(bounds.second)
-            val delta = when {
-                tabLeft < viewportLeft -> tabLeft - viewportLeft
-                tabRight > viewportRight -> tabRight - viewportRight
-                else -> 0f
-            }
-            if (delta != 0f) tabScrollState.scrollTo(
-                (tabScrollState.value + delta.toInt()).coerceIn(0, tabScrollState.maxValue),
-            )
+    LaunchedEffect(state.category, state.searchQuery.isBlank()) {
+        val bounds = snapshotFlow { tabBounds[state.category] to tabViewportBounds }
+            .first { (tab, viewport) -> tab != null && viewport != null }
+        val (tabLeft, tabRight) = requireNotNull(bounds.first)
+        val (viewportLeft, viewportRight) = requireNotNull(bounds.second)
+        val delta = when {
+            tabLeft < viewportLeft -> tabLeft - viewportLeft
+            tabRight > viewportRight -> tabRight - viewportRight
+            else -> 0f
         }
+        if (delta != 0f) tabScrollState.scrollTo(
+            (tabScrollState.value + delta.toInt()).coerceIn(0, tabScrollState.maxValue),
+        )
     }
     LaunchedEffect(state.category, state.browseTitle) { selectedUris = emptySet() }
     LaunchedEffect(state.category) {
@@ -290,16 +291,18 @@ fun LibraryScreen(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    val duration = songs.sumOf { it.durationMs.coerceAtLeast(0L) }
-                    val albumDetails = if (state.category == "Albums") {
-                        val representative = songs.firstOrNull()
-                        val year = songs.map { it.year }.filter(::isValidLibraryYear).maxOrNull()
-                        val artist = representative?.let {
-                            displayValue(it.albumArtist.ifBlank { it.artist }, "Unknown artist")
-                        }.orEmpty()
-                        listOfNotNull(year?.toString(), artist.takeIf(String::isNotBlank)).joinToString(" · ")
-                            .takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
-                    } else ""
+                    val duration = remember(songs) { songs.sumOf { it.durationMs.coerceAtLeast(0L) } }
+                    val albumDetails = remember(songs, state.category) {
+                        if (state.category == "Albums") {
+                            val representative = songs.firstOrNull()
+                            val year = songs.asSequence().map { it.year }.filter(::isValidLibraryYear).maxOrNull()
+                            val artist = representative?.let {
+                                displayValue(it.albumArtist.ifBlank { it.artist }, "Unknown artist")
+                            }.orEmpty()
+                            listOfNotNull(year?.toString(), artist.takeIf(String::isNotBlank)).joinToString(" · ")
+                                .takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
+                        } else ""
+                    }
                     Text(
                         "${countLabel(songs.size, "song")} · ${formatTime(duration)}$albumDetails",
                         style = MaterialTheme.typography.bodySmall,
@@ -345,13 +348,11 @@ fun LibraryScreen(
                 },
             ) {
                 Row(
-                    Modifier.fillMaxWidth().then(if (isTablet) Modifier else Modifier.horizontalScroll(tabScrollState)),
-                    horizontalArrangement = Arrangement.spacedBy(if (isTablet) 2.dp else 4.dp),
+                    Modifier.fillMaxWidth().horizontalScroll(tabScrollState),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    val libraryFilters = listOf("Songs", "Artists", "Albums", "Playlists", "Folders", "Genres", "Years", "Duplicates")
-                    val searchFilters = if (state.searchQuery.isBlank()) libraryFilters else listOf("All") + libraryFilters
-                    searchFilters.forEach { tab ->
-                        val category = if (tab == "All") "Search" else tab
+                    visibleCategoryTabs.forEach { category ->
+                        val tab = if (category == "Search") "All" else category
                         val selected = state.category == category
                         val tabModifier = Modifier
                             .onGloballyPositioned { coordinates ->
@@ -361,7 +362,7 @@ fun LibraryScreen(
                             .graphicsLayer {
                                 val bounds = tabBounds[category]
                                 val viewport = tabViewportBounds
-                                alpha = if (selected || isTablet || bounds == null || viewport == null) 1f else {
+                                alpha = if (selected || bounds == null || viewport == null) 1f else {
                                     val fadeWidth = 36.dp.toPx()
                                     val center = (bounds.first + bounds.second) / 2f
                                     minOf(
@@ -374,7 +375,7 @@ fun LibraryScreen(
                             selected = selected,
                             onClick = { onCategory(category) },
                             label = { Text(tab, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            modifier = tabModifier.then(if (isTablet) Modifier.weight(1f) else Modifier),
+                            modifier = tabModifier,
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primary,
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -526,9 +527,41 @@ fun LibraryScreen(
                 }
             }
         }
-        when {
+        Box(
+            Modifier.weight(1f).fillMaxWidth().pointerInput(visibleCategoryTabs) {
+                var horizontalDrag = 0f
+                val switchThreshold = 80.dp.toPx()
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        val drag = horizontalDrag
+                        horizontalDrag = 0f
+                        if (latestBrowseTitle.value == null && kotlin.math.abs(drag) >= switchThreshold) {
+                            adjacentCategoryForSwipe(
+                                visibleCategoryTabs,
+                                latestCategory.value,
+                                swipeRight = drag > 0f,
+                            )?.let(latestOnCategory.value)
+                        }
+                    },
+                    onDragCancel = { horizontalDrag = 0f },
+                ) { _, dragAmount ->
+                    horizontalDrag += dragAmount
+                }
+            },
+        ) {
+            val listStateKey = state.browseTitle?.let { title ->
+                val detailIdentity = state.activePlaylist?.let { "${it.volumeName}:${it.id}" }
+                    ?: state.browseTracks?.firstOrNull()?.uri?.toString()
+                    ?: title
+                "browse:${state.category}:$detailIdentity"
+            } ?: state.category
+            listStateHolder.SaveableStateProvider(
+                key = listStateKey,
+            ) {
+                val listState = rememberLazyListState()
+                when {
             state.permissionRequired -> EmptyPanel(Icons.Default.PlayArrow, "Let your music in", "RIFT scans audio stored on your phone and SD card. Enable Audio and music in App info if Android no longer shows the prompt.", "Set up audio access", onRequestPermission)
-            state.isLoading && state.tracks.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            state.isLoading && state.tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             state.message != null -> EmptyPanel(Icons.Default.Warning, "Library unavailable", state.message, "Scan again", onRetry)
             else -> {
                 val hasRows = if (state.browseTitle != null) !state.browseTracks.isNullOrEmpty() else when (state.category) {
@@ -565,7 +598,7 @@ fun LibraryScreen(
                     })
                     else if (state.browseTitle == null && state.category != "Search") onRetry else null,
                 )
-                else PullToRefreshBox(isRefreshing = state.isLoading, onRefresh = onRetry, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                else PullToRefreshBox(isRefreshing = state.isLoading, onRefresh = onRetry, modifier = Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize()) {
                     when {
                         state.browseTitle == null && state.category == "Search" -> SearchResults(
@@ -620,9 +653,7 @@ fun LibraryScreen(
                         state.category == "Artists" -> Box(Modifier.fillMaxSize()) {
                             LazyColumn(state = listState, contentPadding = PaddingValues(end = 26.dp, bottom = 12.dp)) {
                                 items(state.visibleArtists, key = { it.id }) { item ->
-                                    val aliasesForArtist = state.artistAliases.filterValues { canonical ->
-                                        normalizeArtistName(resolveArtistAlias(canonical, state.artistAliases)) == item.id
-                                    }.keys
+                                    val aliasesForArtist = artistAliasesGrouped[item.id].orEmpty()
                                     var artistMenuOpen by remember(item.id) { mutableStateOf(false) }
                                     BrowseRow(
                                         item.artworkUri,
@@ -647,11 +678,16 @@ fun LibraryScreen(
                                 }
                             }
                             if (state.searchQuery.isBlank()) {
-                                FastScrollRail(state.visibleArtists.map { it.name }, listState, Modifier.align(Alignment.CenterEnd))
+                                FastScrollRail(
+                                    remember(state.visibleArtists) { state.visibleArtists.map { it.name } },
+                                    listState,
+                                    Modifier.align(Alignment.CenterEnd),
+                                )
                             }
                         }
                         state.category == "Folders" -> {
                             val folderItems = if (showingHiddenFolders) state.visibleHiddenFolders else state.visibleFolders
+                            val folderTitles = remember(folderItems) { folderItems.map { it.title } }
                             Box(Modifier.fillMaxSize()) {
                                 FolderList(
                                     items = folderItems,
@@ -662,12 +698,13 @@ fun LibraryScreen(
                                     onOpen = { onOpenCollection(it, "Folders") },
                                 )
                                 if (!showingHiddenFolders && state.searchQuery.isBlank() && folderItems.size > 30) {
-                                    FastScrollRail(folderItems.map { it.title }, listState, Modifier.align(Alignment.CenterEnd))
+                                    FastScrollRail(folderTitles, listState, Modifier.align(Alignment.CenterEnd))
                                 }
                             }
                         }
                         state.category in listOf("Genres", "Years") -> {
                             val collections = if (state.category == "Genres") state.visibleGenres else state.visibleYears
+                            val collectionTitles = remember(collections) { collections.map { it.title } }
                             Box(Modifier.fillMaxSize()) {
                                 CollectionList(
                                     items = collections,
@@ -676,7 +713,7 @@ fun LibraryScreen(
                                     onOpen = { onOpenCollection(it, state.category) },
                                 )
                                 if (state.category == "Genres" && state.searchQuery.isBlank() && collections.size > 30) {
-                                    FastScrollRail(collections.map { it.title }, listState, Modifier.align(Alignment.CenterEnd))
+                                    FastScrollRail(collectionTitles, listState, Modifier.align(Alignment.CenterEnd))
                                 }
                             }
                         }
@@ -700,7 +737,11 @@ fun LibraryScreen(
                                 }
                             }
                             if (state.searchQuery.isBlank()) {
-                                FastScrollRail(state.visibleAlbums.map { it.title }, listState, Modifier.align(Alignment.CenterEnd))
+                                FastScrollRail(
+                                    remember(state.visibleAlbums) { state.visibleAlbums.map { it.title } },
+                                    listState,
+                                    Modifier.align(Alignment.CenterEnd),
+                                )
                             }
                         }
                         state.category == "Playlists" -> PlaylistsTab(
@@ -731,9 +772,11 @@ fun LibraryScreen(
                     }
                     }
                 }
-                if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(vertical = 7.dp))
             }
         }
+            }
+        }
+        if (playback.currentTrack != null) MiniPlayer(playback, artworkRepository, onOpenPlayer, onPlayPause, onPreviousTrack, onNextTrack, Modifier.padding(vertical = 7.dp))
         SnackbarHost(hostState = snackbarHostState)
     }
     LibraryDialogs(

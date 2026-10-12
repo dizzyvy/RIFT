@@ -49,6 +49,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     private val pendingPlayNextTracks = mutableListOf<AudioTrack>()
     private var positionJob: Job? = null
     private var queueMappingJob: Job? = null
+    private var sessionArtworkJob: Job? = null
     private var queueRevision = 0
     private var highFrequencyPosition = false
     private var abLoopStartMs: Long? = null
@@ -206,6 +207,8 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         pendingQueue = null
         pendingAddedTracks.clear()
         pendingPlayNextTracks.clear()
+        sessionArtworkJob?.cancel()
+        sessionArtworkJob = null
         sleepTimerJob?.cancel()
         sleepTimerJob = null
         finishCurrentTrackAfterTimer = false
@@ -273,6 +276,7 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         if (released) return
         released = true
         positionJob?.cancel()
+        sessionArtworkJob?.cancel()
         mediaController?.removeListener(playerListener)
         mediaController = null
         MediaController.releaseFuture(controllerFuture)
@@ -316,7 +320,9 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     }
 
     private fun refreshSnapshot(player: Player, queueChanged: Boolean = false) {
-        val needsQueueMapping = queueChanged || _snapshot.value.queue.size != player.mediaItemCount
+        val queue = _snapshot.value.queue
+        val needsQueueMapping = queue.size != player.mediaItemCount ||
+            (queueChanged && !matchesSnapshotQueue(player, queue))
         if (needsQueueMapping) {
             val revision = ++queueRevision
             val mediaItems = (0 until player.mediaItemCount).map { index -> player.getMediaItemAt(index) }
@@ -332,6 +338,25 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
         }
         if (queueMappingJob?.isActive == true) return
         updateSnapshot(player, _snapshot.value.queue)
+    }
+
+    private fun matchesSnapshotQueue(player: Player, queue: List<AudioTrack>): Boolean {
+        for (index in queue.indices) {
+            val item = player.getMediaItemAt(index)
+            val uri = item.localConfiguration?.uri ?: return false
+            val track = queue[index]
+            val title = item.mediaMetadata.title?.toString()?.takeIf(String::isNotBlank)
+                ?: uri.lastPathSegment.orEmpty().ifBlank { "Untitled track" }
+            val duration = item.mediaMetadata.extras?.getLong(MEDIA_METADATA_DURATION_MS, 0L) ?: 0L
+            if (
+                uri != track.uri ||
+                title != track.title ||
+                item.mediaMetadata.artist?.toString().orEmpty() != track.artist ||
+                item.mediaMetadata.albumTitle?.toString().orEmpty() != track.album ||
+                duration != track.durationMs
+            ) return false
+        }
+        return true
     }
 
     private fun updateSnapshot(player: Player, queue: List<AudioTrack>) {
@@ -353,10 +378,13 @@ class Media3PlaybackController(context: Context, private val artworkRepository: 
     }
 
     private fun loadSessionArtwork(track: AudioTrack) {
-        scope.launch(Dispatchers.IO) {
+        if (sessionArtworkJob?.isActive == true && _snapshot.value.currentTrack?.uri == track.uri) return
+        sessionArtworkJob?.cancel()
+        sessionArtworkJob = scope.launch(Dispatchers.IO) {
             val image = artworkRepository.load(track.uri) ?: return@launch
             launch(Dispatchers.Main.immediate) {
                 val controller = mediaController ?: return@launch
+                if (controller.currentMediaItem?.localConfiguration?.uri != track.uri) return@launch
                 val index = (0 until controller.mediaItemCount).firstOrNull { controller.getMediaItemAt(it).localConfiguration?.uri == track.uri } ?: return@launch
                 val item = controller.getMediaItemAt(index)
                 if (item.mediaMetadata.artworkData != null) return@launch

@@ -109,6 +109,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
+internal fun firstIndexByLibrarySection(names: List<String>): Map<Char, Int> = buildMap {
+    names.forEachIndexed { index, name ->
+        val section = librarySection(name)
+        if (section !in this) this[section] = index
+    }
+}
 
 @Composable
 internal fun CollectionList(
@@ -343,9 +349,7 @@ internal fun FastScrollRail(
 ) {
     val view = LocalView.current
     val scope = rememberCoroutineScope()
-    val firstIndexByLetter = remember(names) {
-        names.indices.groupBy { librarySection(names[it]) }.mapValues { (_, indices) -> indices.first() }
-    }
+    val firstIndexByLetter = remember(names) { firstIndexByLibrarySection(names) }
     val letters = remember(descending) {
         (listOf('#') + ('A'..'Z').toList()).let { if (descending) it.reversed() else it }
     }

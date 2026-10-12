@@ -71,7 +71,20 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Playlists.Members.AUDIO_ID)
                 val ids = buildList { while (cursor.moveToNext()) add(cursor.getLong(idColumn)) }
                 val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(playlist.volumeName) else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                val tracksById = queryCollection(collection).tracks.associateBy { it.id }
+                val tracksById = mutableMapOf<Long, AudioTrack>()
+                ids.chunked(PLAYLIST_TRACK_QUERY_BATCH_SIZE).forEach { idBatch ->
+                    val placeholders = idBatch.joinToString(",") { "?" }
+                    val outcome = queryCollection(
+                        collection = collection,
+                        selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media._ID} IN ($placeholders)",
+                        selectionArgs = idBatch.map { it.toString() }.toTypedArray(),
+                        sortOrder = null,
+                    )
+                    if (!outcome.complete) {
+                        Log.w(TAG, "Could not resolve all tracks for playlist ${playlist.name}")
+                    }
+                    outcome.tracks.forEach { tracksById[it.id] = cleanTrackMetadata(it) }
+                }
                 ids.mapNotNull(tracksById::get)
             }.orEmpty()
         }.getOrElse { Log.w(TAG, "Could not read playlist ${playlist.name}", it); emptyList() }
@@ -107,6 +120,9 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
         onProgress: ((processed: Int, total: Int) -> Unit)? = null,
         processedBefore: Int = 0,
         totalBefore: Int = 0,
+        selection: String = "${MediaStore.Audio.Media.IS_MUSIC} != 0",
+        selectionArgs: Array<String>? = null,
+        sortOrder: String? = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
     ): QueryOutcome {
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -130,9 +146,9 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
             val cursor = resolver.query(
                 collection,
                 projection,
-                "${MediaStore.Audio.Media.IS_MUSIC} != 0",
-                null,
-                "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
+                selection,
+                selectionArgs,
+                sortOrder,
             ) ?: return QueryOutcome(emptyList(), complete = false, scannedRows = 0)
             cursor.use {
                 val count = cursor.count
@@ -213,6 +229,7 @@ class MediaStoreAudioLibraryRepository(context: Context) : AudioLibraryRepositor
 
     private companion object {
         const val TAG = "RIFTLibrary"
+        const val PLAYLIST_TRACK_QUERY_BATCH_SIZE = 500
     }
 
     private fun <T> browseComparator(title: (T) -> String): Comparator<T> = compareBy<T> { if (librarySection(title(it)) == '#') 0 else 1 }
