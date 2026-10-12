@@ -1,0 +1,51 @@
+Third-party component and source notices
+
+Downloader source:
+
+The downloader module contains source derived from the Seal project, including
+source published in the dizzyvy/Seal repository:
+https://github.com/dizzyvy/Seal/commit/7677f61a20fda4210e84215fef9e9b51d25daa47
+
+The cited commit is authored by JunkFood02. The source repository declares
+the project under the GNU General Public License, version 3. The complete
+GPLv3 text is provided in the repository-root LICENSE and GPL-3.0.txt.
+Copyright and license headers are present in certain inspected source files.
+A complete file-by-file audit has not been performed to verify that all
+applicable notices are present and retained; verify this before distribution.
+The Seal-derived
+downloader code and its adaptations are not covered by the Apache license
+text preserved in licenses/APACHE-2.0.txt. This notice does not claim that
+RIFT owns or may relicense upstream contributions.
+
+The app declares the downloader as a dependency of the same Android
+application. A separate Gradle module does not by itself establish that the
+distributed app is a mere aggregation of independent programs. Distribution
+of the integrated app may therefore require compliance with GPLv3 terms for a
+combined work. This repository notice does not determine the legal status of
+the combination or establish rights to relicense upstream contributions.
+Review those rights and obligations before distributing the integrated app.
+
+Apache-licensed source:
+
+The copied Material color science sources retain their Google LLC, 2021
+copyright and Apache-2.0 headers. The copied Material motion helper sources
+retain their SOUP, 2021 copyright and Apache-2.0 headers. The full Apache license text is in licenses/APACHE-2.0.txt.
+
+Bundled fonts:
+
+Libre Franklin and Shrikhand font files are licensed under the SIL Open Font
+License, version 1.1. Their full license texts are in OFL-Libre-Franklin.txt
+and OFL-Shrikhand.txt.
+
+External dependencies:
+
+Libraries and native components declared in Gradle are supplied separately
+from this source tree and retain their applicable licenses and notices; the
+root GPL license does not by itself relicense third-party components. The
+downloader declares youtubedl-android library, FFmpeg, and aria2c artifacts
+at version 0.17.3 in the Gradle version catalog. Those declarations identify
+dependencies and their declared version, not the complete license status of
+each artifact, native payload, or transitive dependency. Check the exact
+artifacts used for each distribution. See
+licenses/DEPENDENCY-AND-ASSET-INVENTORY.md; a complete audit remains
+outstanding.

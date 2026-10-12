@@ -45,6 +45,7 @@ internal class SettingsActions(
     val openDuplicates: () -> Unit,
     val removeArtistAlias: (String) -> Unit,
     val chooseLyricsDirectory: () -> Unit,
+    val openDownloader: () -> Unit,
     val exportBackup: () -> Unit,
     val importBackup: () -> Unit,
     val importM3u: () -> Unit,
@@ -100,6 +101,12 @@ internal fun SettingsSheet(
                     modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                 )
             }
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            Text("Downloads", style = MaterialTheme.typography.titleMedium)
+            RiftTextButton(
+                onClick = { onDismiss(); actions.openDownloader() },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("Open Downloader") }
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
             Text("Library", style = MaterialTheme.typography.titleMedium)
             RiftTextButton(onClick = { onDismiss(); actions.rescan() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {

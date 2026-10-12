@@ -51,6 +51,8 @@ import com.dizzyvy.rift.ui.library.LibraryScreen
 import com.dizzyvy.rift.ui.library.LibraryViewModel
 import com.dizzyvy.rift.ui.player.NowPlayingScreen
 import com.dizzyvy.rift.ui.theme.RiftTheme
+import com.dizzyvy.rift.downloader.RiftDownloaderFeature
+import com.dizzyvy.rift.downloader.util.findSharedDownloadUrls
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -67,6 +69,8 @@ fun RiftApp(
     themeMode: String,
     externalAudioUri: Uri?,
     onExternalAudioHandled: () -> Unit,
+    externalDownloadText: String?,
+    onExternalDownloadTextHandled: () -> Unit,
     onThemeModeChange: (String) -> Unit,
     onRequestPermission: () -> Unit,
 ) {
@@ -75,13 +79,15 @@ fun RiftApp(
     val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
     val playback by playbackController.snapshot.collectAsStateWithLifecycle()
     var showPlayer by rememberSaveable { mutableStateOf(false) }
+    var showDownloader by rememberSaveable { mutableStateOf(false) }
+    var pendingDownloaderUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCategory by rememberSaveable { mutableStateOf("Songs") }
     LaunchedEffect(selectedCategory) {
         if (libraryState.category != selectedCategory) {
             libraryViewModel.selectCategory(selectedCategory)
         }
     }
-    BackHandler(enabled = showPlayer || libraryState.browseTitle != null) {
+    BackHandler(enabled = !showDownloader && (showPlayer || libraryState.browseTitle != null)) {
         if (showPlayer) showPlayer = false else libraryViewModel.closeGroup()
     }
     val context = LocalContext.current
@@ -229,6 +235,14 @@ fun RiftApp(
         onExternalAudioHandled()
     }
 
+    LaunchedEffect(externalDownloadText) {
+        val sharedUrls = externalDownloadText?.let(::findSharedDownloadUrls).orEmpty()
+        if (sharedUrls.isNotEmpty()) {
+            pendingDownloaderUrl = sharedUrls.joinToString("\n")
+            showDownloader = true
+        }
+        onExternalDownloadTextHandled()
+    }
 
     DisposableEffect(hasAudioPermission, context, libraryViewModel) {
         if (!hasAudioPermission) {
@@ -277,6 +291,14 @@ fun RiftApp(
 
     RiftTheme(mode = themeMode) {
       CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+      if (showDownloader) {
+        RiftDownloaderFeature(
+            themeMode = themeMode,
+            startUrl = pendingDownloaderUrl,
+            onStartUrlHandled = { pendingDownloaderUrl = null },
+            onClose = { showDownloader = false },
+        )
+      } else {
       androidx.compose.foundation.layout.Box(
           Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
       ) {
@@ -384,7 +406,9 @@ fun RiftApp(
                     libraryViewModel.setFolderHidden(path, hidden, onComplete)
                 },
                 onEnsureDuplicatesLoaded = libraryViewModel::ensureDuplicateGroupsLoaded,
+                onOpenDownloader = { showDownloader = true },
             )
+        }
         }
         }
       }

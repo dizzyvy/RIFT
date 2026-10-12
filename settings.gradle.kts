@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "RIFT"
 include(":app")
+include(":downloader")

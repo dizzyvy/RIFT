@@ -167,6 +167,7 @@ fun LibraryScreen(
     onChooseLyricsDirectory: () -> Unit,
     onToggleFolderHidden: (String, Boolean, () -> Unit) -> Unit,
     onEnsureDuplicatesLoaded: () -> Unit,
+    onOpenDownloader: () -> Unit,
 ) {
     val listStateHolder = rememberSaveableStateHolder()
     val scope = rememberCoroutineScope()
@@ -859,6 +860,7 @@ fun LibraryScreen(
             openDuplicates = { onCategory("Duplicates") },
             removeArtistAlias = onRemoveArtistAlias,
             chooseLyricsDirectory = onChooseLyricsDirectory,
+            openDownloader = onOpenDownloader,
             exportBackup = onExportBackup,
             importBackup = onImportBackup,
             importM3u = onImportM3u,

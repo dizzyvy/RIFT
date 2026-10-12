@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <external-files-path
+        name="downloader_downloads"
+        path="Download/RIFT/" />
+    <files-path
+        name="downloader_private"
+        path="downloader/" />
+    <cache-path
+        name="downloader_cache"
+        path="downloader/" />
+</paths>

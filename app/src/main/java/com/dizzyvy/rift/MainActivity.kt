@@ -32,12 +32,13 @@ class MainActivity : ComponentActivity() {
     private val audioPermissionState = mutableStateOf(false)
     private val themeModeState = mutableStateOf("system")
     private val externalAudioUriState = mutableStateOf<Uri?>(null)
+    private val externalDownloadTextState = mutableStateOf<String?>(null)
     private var requestedAudioPermissionBefore = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        externalAudioUriState.value = intent?.data?.takeIf { intent?.action == Intent.ACTION_VIEW }
+        handleIncomingIntent(intent)
         repository = MediaStoreAudioLibraryRepository(applicationContext)
         playlistStore = SqlitePlaylistStore(applicationContext)
         artworkRepository = EmbeddedArtworkRepository(applicationContext, playlistStore)
@@ -77,6 +78,8 @@ class MainActivity : ComponentActivity() {
                 themeMode = themeModeState.value,
                 externalAudioUri = externalAudioUriState.value,
                 onExternalAudioHandled = { externalAudioUriState.value = null },
+                externalDownloadText = externalDownloadTextState.value,
+                onExternalDownloadTextHandled = { externalDownloadTextState.value = null },
                 onThemeModeChange = { value ->
                     val normalized = normalizeThemeMode(value)
                     themeModeState.value = normalized
@@ -110,6 +113,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
     override fun onDestroy() {
         if (::playbackController.isInitialized) playbackController.release()
         if (::playlistStore.isInitialized) playlistStore.close()
@@ -126,6 +135,36 @@ class MainActivity : ComponentActivity() {
         this,
         requiredAudioPermission(),
     ) == PackageManager.PERMISSION_GRANTED
+
+    private fun handleIncomingIntent(incoming: Intent?) {
+        if (incoming == null) return
+        try {
+            when (incoming.action) {
+                Intent.ACTION_VIEW -> {
+                    val uri = incoming.data ?: return
+                    when {
+                        uri.scheme.equals("http", ignoreCase = true) ||
+                            uri.scheme.equals("https", ignoreCase = true) ->
+                            externalDownloadTextState.value = uri.toString()
+                        uri.scheme.equals("content", ignoreCase = true) ||
+                            uri.scheme.equals("file", ignoreCase = true) ->
+                            if (incoming.type.orEmpty().startsWith("audio/")) {
+                                externalAudioUriState.value = uri
+                            }
+                    }
+                }
+                Intent.ACTION_SEND ->
+                    if (incoming.type == "text/plain") {
+                        externalDownloadTextState.value =
+                            incoming.getStringExtra(Intent.EXTRA_TEXT)
+                    }
+            }
+        } finally {
+            if (incoming.action == Intent.ACTION_VIEW || incoming.action == Intent.ACTION_SEND) {
+                setIntent(Intent())
+            }
+        }
+    }
 
     private fun isThemeDark(mode: String, isSystemDarkTheme: Boolean): Boolean = when (mode) {
         "dark" -> true

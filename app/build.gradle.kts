@@ -35,8 +35,8 @@ android {
         applicationId = "com.dizzyvy.sjmusicapp"
         minSdk = 24
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.12.0"
+        versionCode = 12
+        versionName = "0.14.0"
     }
 
     buildTypes {
@@ -71,6 +71,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":downloader"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
