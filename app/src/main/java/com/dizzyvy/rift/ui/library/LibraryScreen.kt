@@ -257,15 +257,6 @@ fun LibraryScreen(
     LaunchedEffect(state.searchQuery.isNotBlank()) {
         if (state.searchQuery.isNotBlank()) searchExpanded = true
     }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .collect { scrolling ->
-                if (scrolling) {
-                    focusManager.clearFocus()
-                    keyboardController?.hide()
-                }
-            }
-    }
     LaunchedEffect(state.category) { if (state.category != "Folders") showingHiddenFolders = false }
     LaunchedEffect(state.actionMessage) {
         val message = state.actionMessage ?: return@LaunchedEffect
@@ -559,6 +550,15 @@ fun LibraryScreen(
                 key = listStateKey,
             ) {
                 val listState = rememberLazyListState()
+                LaunchedEffect(listState) {
+                    snapshotFlow { listState.isScrollInProgress }
+                        .collect { scrolling ->
+                            if (scrolling) {
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                            }
+                        }
+                }
                 when {
             state.permissionRequired -> EmptyPanel(Icons.Default.PlayArrow, "Let your music in", "RIFT scans audio stored on your phone and SD card. Enable Audio and music in App info if Android no longer shows the prompt.", "Set up audio access", onRequestPermission)
             state.isLoading && state.tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }

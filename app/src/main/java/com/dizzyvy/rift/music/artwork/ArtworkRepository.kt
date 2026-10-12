@@ -127,7 +127,7 @@ class EmbeddedArtworkRepository(
             }
         }
         decodeSemaphore.acquire()
-        try {
+        return try {
             memoryArtwork(artworkKey, sizePx)?.let {
                 rememberAlias(uriCacheKey, memoryKey(artworkKey, sizePx), sourceModifiedSeconds ?: 0L)
                 return it
