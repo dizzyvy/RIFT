@@ -84,7 +84,7 @@ class LibraryRulesTest {
         )
 
         assertEquals(setOf("band", "bandname"), groupArtistAliasesByGroup(aliases)["theband"])
-        assertEquals(setOf("solo"), groupArtistAliasesByGroup(aliases)["solo artist"])
+        assertEquals(setOf("solo"), groupArtistAliasesByGroup(aliases)["soloartist"])
     }
 
     @Test
