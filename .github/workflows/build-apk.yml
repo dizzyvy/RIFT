@@ -60,11 +60,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq '.id')"
-          asset_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" \
-            --jq '.[] | select(.name == "RIFT-v0.12.0-debug.apk") | .id')"
-          if [[ -n "$asset_id" ]]; then
-            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+            --jq '.[] | select(.tag_name == "v0.12.0") | .id' | head -n 1)"
+          if [[ -n "$release_id" ]]; then
+            asset_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" \
+              --jq '.[] | select(.name == "RIFT-v0.12.0-debug.apk") | .id')"
+            if [[ -n "$asset_id" ]]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+            fi
           fi
 
       - name: Publish GitHub release
