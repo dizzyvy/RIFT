@@ -4,12 +4,12 @@ RIFT is a music player for Android, made for people who keep their music on thei
 
 ## Download
 
-The latest pre-release is **RIFT v0.13.0**.
+The base version for this project is **RIFT v0.12.0**.
 
-**[Download RIFT v0.13.0 for Android](https://github.com/dizzyvy/RIFT/releases/download/v0.13.0/RIFT-v0.13.0-debug.apk)**  
+**[Download RIFT v0.12.0 for Android](https://github.com/dizzyvy/RIFT/releases/download/v0.12.0/RIFT-v0.12.0-debug.apk)**  
 [View all releases and older versions](https://github.com/dizzyvy/RIFT/releases)
 
-RIFT is not on Google Play. These downloads are pre-release testing builds, so you may run into bugs and things may change between versions.
+RIFT is not on Google Play. This is a pre-release testing build, so you may run into bugs and things may change between versions.
 
 To install it, download the APK to your Android device and open it. Android may ask you to allow installs from the app you used to download it. Only install it if you're comfortable using a pre-release build.
 
@@ -31,4 +31,4 @@ RIFT is intended for Android 7.0 and newer. Actual audio support can vary by pho
 
 ## About
 
-RIFT is still being developed. The pre-release APK is available above; the Google Play Store is not currently an option.
+RIFT is still being developed. Version 0.12.0 is the base version for this project; it is a pre-release and is not available through the Google Play Store.
