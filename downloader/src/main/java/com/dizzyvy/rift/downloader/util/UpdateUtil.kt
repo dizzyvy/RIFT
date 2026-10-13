@@ -10,21 +10,40 @@ import kotlinx.coroutines.withContext
 object UpdateUtil {
     suspend fun updateYtDlp(): YoutubeDL.UpdateStatus? =
         withContext(Dispatchers.IO) {
-            val channel =
-                when (YT_DLP_UPDATE_CHANNEL.getInt()) {
-                    YT_DLP_NIGHTLY -> YoutubeDL.UpdateChannel.NIGHTLY
-                    else -> YoutubeDL.UpdateChannel.STABLE
+            val operation =
+                DownloaderTiming.newOperationId("yt-dlp-update")?.let {
+                    DownloaderTiming.beginOperation(it, "yt_dlp_update")
                 }
-
-            YoutubeDL.getInstance()
-                .updateYoutubeDL(appContext = context, updateChannel = channel)
-                .also {
-                    if (it == YoutubeDL.UpdateStatus.DONE) {
-                        YoutubeDL.getInstance().version(context)?.let { version ->
-                            PreferenceUtil.encodeString(YT_DLP_VERSION, version)
-                        }
+            try {
+                val channel =
+                    when (YT_DLP_UPDATE_CHANNEL.getInt()) {
+                        YT_DLP_NIGHTLY -> YoutubeDL.UpdateChannel.NIGHTLY
+                        else -> YoutubeDL.UpdateChannel.STABLE
                     }
-                    YT_DLP_UPDATE_TIME.updateLong(System.currentTimeMillis())
-                }
+
+                YoutubeDL.getInstance()
+                    .updateYoutubeDL(appContext = context, updateChannel = channel)
+                    .also {
+                        if (it == YoutubeDL.UpdateStatus.DONE) {
+                            YoutubeDL.getInstance().version(context)?.let { version ->
+                                PreferenceUtil.encodeString(YT_DLP_VERSION, version)
+                            }
+                        }
+                        YT_DLP_UPDATE_TIME.updateLong(System.currentTimeMillis())
+                    }
+                    .also { status ->
+                        DownloaderTiming.finishOperation(
+                            operation,
+                            outcome = status?.name ?: "no_status",
+                        )
+                    }
+            } catch (error: Throwable) {
+                DownloaderTiming.finishOperation(
+                    operation,
+                    outcome = "failed",
+                    error = error,
+                )
+                throw error
+            }
         }
 }

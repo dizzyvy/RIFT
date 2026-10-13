@@ -284,6 +284,7 @@ fun DownloadPageV2(
         is DownloadDialogViewModel.SelectionState.FormatSelection ->
             FormatPage(
                 state = selectionState,
+                timingTrace = selectionState.timingTrace,
                 onDismissRequest = { dialogViewModel.postAction(Action.Reset) },
             )
 

@@ -6,6 +6,8 @@ import com.dizzyvy.rift.downloader.database.objects.CommandTemplate
 import com.dizzyvy.rift.downloader.download.DownloaderV2
 import com.dizzyvy.rift.downloader.download.Task
 import com.dizzyvy.rift.downloader.util.DownloadUtil
+import com.dizzyvy.rift.downloader.util.DownloadTimingTrace
+import com.dizzyvy.rift.downloader.util.DownloaderTiming
 import com.dizzyvy.rift.downloader.util.PlaylistResult
 import com.dizzyvy.rift.downloader.util.VideoInfo
 import com.yausername.youtubedl_android.YoutubeDL
@@ -26,7 +28,10 @@ class DownloadDialogViewModel(private val downloader: DownloaderV2) : ViewModel(
 
         data class PlaylistSelection(val result: PlaylistResult) : SelectionState
 
-        data class FormatSelection(val info: VideoInfo) : SelectionState
+        data class FormatSelection(
+            val info: VideoInfo,
+            val timingTrace: DownloadTimingTrace? = null,
+        ) : SelectionState
     }
 
     sealed interface SheetState {
@@ -148,6 +153,7 @@ class DownloadDialogViewModel(private val downloader: DownloaderV2) : ViewModel(
 
     private fun fetchFormat(action: Action.FetchFormats) {
         val (url, audioOnly, preferences) = action
+        val timingTrace = DownloaderTiming.newFormatTrace()
 
         val job =
             viewModelScope.launch(Dispatchers.IO) {
@@ -155,11 +161,15 @@ class DownloadDialogViewModel(private val downloader: DownloaderV2) : ViewModel(
                         url = url,
                         preferences = preferences.copy(extractAudio = audioOnly),
                         taskKey = "FetchFormat_$url",
+                        timingTrace = timingTrace,
                     )
                     .onSuccess { info ->
                         withContext(Dispatchers.Main) {
                             mSelectionStateFlow.update {
-                                SelectionState.FormatSelection(info = info)
+                                SelectionState.FormatSelection(
+                                    info = info,
+                                    timingTrace = timingTrace,
+                                )
                             }
                             hideDialog()
                         }

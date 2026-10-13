@@ -132,12 +132,15 @@ object DownloadUtil {
     private fun getVideoInfo(
         request: YoutubeDLRequest,
         taskKey: String? = null,
+        timingTrace: DownloadTimingTrace? = null,
     ): Result<VideoInfo> =
         request.runCatching {
+            timingTrace?.extractorStarted()
             val response: YoutubeDLResponse =
                 YoutubeDL.getInstance().execute(request, taskKey, null)
             jsonFormat.decodeFromString(response.out)
-        }
+        }.onSuccess { timingTrace?.formatsAvailable() }
+            .onFailure { timingTrace?.extractorFailed(it) }
 
     @CheckResult
     fun fetchVideoInfoFromUrl(
@@ -145,6 +148,7 @@ object DownloadUtil {
         playlistIndex: Int? = null,
         taskKey: String? = null,
         preferences: DownloadPreferences = DownloadPreferences.createFromPreferences(),
+        timingTrace: DownloadTimingTrace? = null,
     ): Result<VideoInfo> {
         with(preferences) {
             val request =
@@ -185,7 +189,7 @@ object DownloadUtil {
                     addOption("--no-playlist")
                     addOption("--socket-timeout", "5")
                 }
-            return getVideoInfo(request, taskKey)
+            return getVideoInfo(request, taskKey, timingTrace)
         }
     }
 
@@ -667,6 +671,7 @@ object DownloadUtil {
         taskId: String,
         downloadPreferences: DownloadPreferences,
         progressCallback: ((Float, Long, String) -> Unit)?,
+        timingTrace: DownloadTimingTrace? = null,
     ): Result<List<String>> {
         if (videoInfo == null)
             return Result.failure(Throwable(context.getString(R.string.fetch_info_error_msg)))
@@ -683,6 +688,20 @@ object DownloadUtil {
             val request = YoutubeDLRequest(url)
             val pathBuilder = StringBuilder()
             val outputBuilder = StringBuilder()
+
+            fun finishDownload(): Result<List<String>> {
+                timingTrace?.postProcessingStarted()
+                return onFinishDownloading(
+                    preferences = this,
+                    videoInfo = videoInfo,
+                    downloadPath = pathBuilder.toString(),
+                    sdcardUri = sdcardUri,
+                    timingTrace = timingTrace,
+                ).also { result ->
+                    result.onSuccess { timingTrace?.postProcessingFinished() }
+                    result.onFailure { timingTrace?.postProcessingFinished(it) }
+                }
+            }
 
             request
                 .apply {
@@ -796,34 +815,25 @@ object DownloadUtil {
                         }
 
                     addOption("-o", outputBuilder.append(output).toString())
-
-                    for (s in request.buildCommand()) Log.d(TAG, s)
                 }
                 .runCatching {
+                    timingTrace?.transferStarted()
                     YoutubeDL.getInstance()
                         .execute(request = this, processId = taskId, callback = progressCallback)
                 }
+                .onSuccess { timingTrace?.transferFinished() }
                 .onFailure { th ->
+                    timingTrace?.transferFinished(th)
                     return if (
                         sponsorBlock &&
                             th.message?.contains("Unable to communicate with SponsorBlock API") ==
                                 true
                     ) {
                         th.printStackTrace()
-                        onFinishDownloading(
-                            preferences = this,
-                            videoInfo = videoInfo,
-                            downloadPath = pathBuilder.toString(),
-                            sdcardUri = sdcardUri,
-                        )
+                        finishDownload()
                     } else Result.failure(th)
                 }
-            return onFinishDownloading(
-                preferences = this,
-                videoInfo = videoInfo,
-                downloadPath = pathBuilder.toString(),
-                sdcardUri = sdcardUri,
-            )
+            return finishDownload()
         }
     }
 
@@ -832,6 +842,7 @@ object DownloadUtil {
     videoInfo: VideoInfo,
     downloadPath: String,
     sdcardUri: String,
+    timingTrace: DownloadTimingTrace? = null,
             ): Result<List<String>> {
     return try {
         preferences.run {
@@ -844,20 +855,52 @@ object DownloadUtil {
 
             Log.d(TAG, "onFinishDownloading: $fileName")
             if (sdcard) {
-                val transferredFiles =
+                val copyOperation =
+                    timingTrace?.let {
+                        DownloaderTiming.beginOperation(it.id, "external_copy")
+                    }
+                val transferredFilesResult =
                     moveFilesToSdcard(
                         sdcardUri = sdcardUri,
                         tempPath = context.getSdcardTempDir(videoInfo.id),
                     )
-                        .getOrElse { return Result.failure(it) }
+                transferredFilesResult.fold(
+                    onSuccess = { DownloaderTiming.finishOperation(copyOperation) },
+                    onFailure = {
+                        DownloaderTiming.finishOperation(
+                            copyOperation,
+                            outcome = "failed",
+                            error = it,
+                        )
+                    },
+                )
+                val transferredFiles =
+                    transferredFilesResult.getOrElse { return Result.failure(it) }
                 if (privateMode) Result.success(emptyList())
                 else if (splitByChapter) {
-                    Result.success(insertSplitChapterIntoHistory(videoInfo, transferredFiles))
+                    Result.success(
+                        DownloaderTiming.measure(
+                            timingTrace?.let {
+                                DownloaderTiming.beginOperation(it.id, "download_history_index")
+                            },
+                        ) { insertSplitChapterIntoHistory(videoInfo, transferredFiles) },
+                    )
                 } else {
-                    Result.success(insertInfoIntoDownloadHistory(videoInfo, transferredFiles))
+                    Result.success(
+                        DownloaderTiming.measure(
+                            timingTrace?.let {
+                                DownloaderTiming.beginOperation(it.id, "download_history_index")
+                            },
+                        ) { insertInfoIntoDownloadHistory(videoInfo, transferredFiles) },
+                    )
                 }
             } else {
-                val downloadedFiles = getDownloadFilesPostDownload(fileName, downloadPath)
+                val downloadedFiles =
+                    DownloaderTiming.measure(
+                        timingTrace?.let {
+                            DownloaderTiming.beginOperation(it.id, "output_file_discovery")
+                        },
+                    ) { getDownloadFilesPostDownload(fileName, downloadPath) }
                 if (privateMode) {
                     Result.success(emptyList())
                 } else {
@@ -869,18 +912,30 @@ object DownloadUtil {
                         }
                     val visiblePaths =
                         if (!privateDirectory && destinationTree != null && downloadedFiles.isNotEmpty()) {
-                            FileUtil.copyFilesToTree(
-                                filePaths = downloadedFiles,
-                                treeUri = Uri.parse(destinationTree),
-                                baseDirectory = File(downloadPath),
-                            )
+                            DownloaderTiming.measure(
+                                timingTrace?.let {
+                                    DownloaderTiming.beginOperation(it.id, "external_copy")
+                                },
+                            ) {
+                                FileUtil.copyFilesToTree(
+                                    filePaths = downloadedFiles,
+                                    treeUri = Uri.parse(destinationTree),
+                                    baseDirectory = File(downloadPath),
+                                )
+                            }
                         } else downloadedFiles
                     Result.success(
-                        if (splitByChapter) {
-                            insertSplitChapterIntoHistory(videoInfo, visiblePaths)
-                        } else {
-                            insertInfoIntoDownloadHistory(videoInfo, visiblePaths)
-                        }
+                        DownloaderTiming.measure(
+                            timingTrace?.let {
+                                DownloaderTiming.beginOperation(it.id, "download_history_index")
+                            },
+                        ) {
+                            if (splitByChapter) {
+                                insertSplitChapterIntoHistory(videoInfo, visiblePaths)
+                            } else {
+                                insertInfoIntoDownloadHistory(videoInfo, visiblePaths)
+                            }
+                        },
                     )
                 }
             }

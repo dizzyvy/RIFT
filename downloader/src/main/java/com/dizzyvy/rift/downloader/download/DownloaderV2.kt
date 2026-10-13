@@ -300,12 +300,14 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
             execute()
             return
         }
+        timingTrace?.queueSlotStarted()
         scope
             .launch(Dispatchers.Default) {
                 DownloadUtil.downloadVideo(
                         videoInfo = info,
                         taskId = id,
                         downloadPreferences = preferences,
+                        timingTrace = timingTrace,
                         progressCallback = { progressPercentage, _, text ->
                             val progress = progressPercentage / 100f
                             when (val preState = downloadState) {

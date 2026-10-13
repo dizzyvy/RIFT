@@ -4,6 +4,7 @@ import com.dizzyvy.rift.downloader.database.objects.CommandTemplate
 import com.dizzyvy.rift.downloader.download.Task.TypeInfo
 import com.dizzyvy.rift.downloader.download.Task.ViewState
 import com.dizzyvy.rift.downloader.util.DownloadUtil
+import com.dizzyvy.rift.downloader.util.DownloadTimingTrace
 import com.dizzyvy.rift.downloader.util.Format
 import com.dizzyvy.rift.downloader.util.VideoInfo
 import com.dizzyvy.rift.downloader.util.toHttpsUrl
@@ -31,6 +32,8 @@ data class Task(
     val preferences: DownloadUtil.DownloadPreferences,
     val id: String = makeId(url, type, preferences),
 ) : Comparable<Task> {
+
+    internal var timingTrace: DownloadTimingTrace? = null
 
     val timeCreated: Long = System.currentTimeMillis()
 

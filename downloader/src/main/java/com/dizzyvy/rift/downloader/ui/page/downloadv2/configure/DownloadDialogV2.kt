@@ -463,7 +463,12 @@ fun FormatPage(
             skipHalfExpanded = true,
         )
 
-    LaunchedEffect(state) { sheetState.show() }
+    LaunchedEffect(state) {
+        sheetState.show()
+        if (sheetState.currentValue == ModalBottomSheetValue.Expanded) {
+            state.timingTrace?.formatSheetExpanded()
+        }
+    }
     val scope = rememberCoroutineScope()
     BackHandler { scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissRequest() } }
 
@@ -471,6 +476,7 @@ fun FormatPage(
         FormatPage(
             modifier = modifier,
             videoInfo = state.info,
+            timingTrace = state.timingTrace,
             onNavigateBack = {
                 scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissRequest() }
             },

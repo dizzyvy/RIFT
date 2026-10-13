@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
@@ -95,6 +96,7 @@ import com.dizzyvy.rift.downloader.ui.page.settings.general.DialogCheckBoxItem
 import com.dizzyvy.rift.downloader.ui.theme.DownloaderTheme
 import com.dizzyvy.rift.downloader.ui.theme.generateLabelColor
 import com.dizzyvy.rift.downloader.util.EXTRACT_AUDIO
+import com.dizzyvy.rift.downloader.util.DownloadTimingTrace
 import com.dizzyvy.rift.downloader.util.Format
 import com.dizzyvy.rift.downloader.util.MERGE_MULTI_AUDIO_STREAM
 import com.dizzyvy.rift.downloader.util.PreferenceUtil.getBoolean
@@ -127,6 +129,7 @@ private data class FormatConfig(
 fun FormatPage(
     modifier: Modifier = Modifier,
     videoInfo: VideoInfo,
+    timingTrace: DownloadTimingTrace? = null,
     downloader: DownloaderV2 = koinInject(),
     onNavigateBack: () -> Unit = {},
 ) {
@@ -151,6 +154,7 @@ fun FormatPage(
     FormatPageImpl(
         modifier = modifier,
         videoInfo = videoInfo,
+        timingTrace = timingTrace,
         onNavigateBack = onNavigateBack,
         audioOnly = audioOnly,
         mergeAudioStream = !audioOnly && mergeAudioStream,
@@ -163,7 +167,7 @@ fun FormatPage(
                     .run { this - this.filterWithRegex(subtitleLanguageRegex) }
                     .toSet()
 
-            downloader.enqueue(
+            val taskWithState =
                 TaskFactory.createWithConfigurations(
                     videoInfo = videoInfo,
                     formatList = formatList,
@@ -173,7 +177,9 @@ fun FormatPage(
                     selectedSubtitles = selectedSubtitles,
                     selectedAutoCaptions = selectedAutoCaptions,
                 )
-            )
+            taskWithState.task.timingTrace = timingTrace
+            timingTrace?.queued()
+            downloader.enqueue(taskWithState)
 
             if (diffSubtitleLanguages.isNotEmpty()) {
                 showUpdateSubtitleDialog = true
@@ -285,6 +291,7 @@ fun FormatPagePreview() {
 private fun FormatPageImpl(
     modifier: Modifier = Modifier,
     videoInfo: VideoInfo = VideoInfo(),
+    timingTrace: DownloadTimingTrace? = null,
     audioOnly: Boolean = false,
     mergeAudioStream: Boolean = false,
     isClippingAvailable: Boolean = false,
@@ -391,7 +398,14 @@ private fun FormatPageImpl(
     val selectedAutoCaptions = remember { mutableStateListOf<String>() }
 
     Scaffold(
-        modifier = modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier =
+            modifier.fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .onGloballyPositioned { coordinates ->
+                    if (coordinates.size.width > 0 && coordinates.size.height > 0) {
+                        timingTrace?.formatContentLaidOut()
+                    }
+                },
         topBar = {
             TopAppBar(
                 title = {

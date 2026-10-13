@@ -30,6 +30,7 @@ import com.dizzyvy.rift.downloader.util.VIDEO_DIRECTORY
 import com.dizzyvy.rift.downloader.util.VIDEO_DIRECTORY_TREE_URI
 import com.dizzyvy.rift.downloader.util.YT_DLP_VERSION
 import com.dizzyvy.rift.downloader.util.DownloadUtil
+import com.dizzyvy.rift.downloader.util.DownloaderTiming
 import com.dizzyvy.rift.downloader.util.FileUtil
 import com.dizzyvy.rift.downloader.util.FileUtil.createEmptyFile
 import com.dizzyvy.rift.downloader.util.FileUtil.getCookiesFile
@@ -159,33 +160,50 @@ class DownloaderRuntime private constructor() {
 
                 applicationScope.launch(Dispatchers.IO) {
                     var stage = DownloaderInitializationStage.ENVIRONMENT
+                    val operationId = "initialization-$attempt"
+                    val attemptOperation =
+                        DownloaderTiming.beginOperation(operationId, "initialization")
+                    var stageOperation =
+                        DownloaderTiming.beginOperation(operationId, stage.name.lowercase())
                     try {
                         Log.i("RiftDownloader", "Initialization attempt $attempt started.")
                         Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
                         ensureEnvironmentInitialized(applicationContext)
+                        DownloaderTiming.finishOperation(stageOperation)
 
                         stage = DownloaderInitializationStage.YOUTUBE_DL
+                        stageOperation =
+                            DownloaderTiming.beginOperation(operationId, stage.name.lowercase())
                         Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
                         if (!youtubeDlInitialized) {
                             YoutubeDL.init(context)
                             youtubeDlInitialized = true
                         }
+                        DownloaderTiming.finishOperation(stageOperation)
 
                         stage = DownloaderInitializationStage.FFMPEG
+                        stageOperation =
+                            DownloaderTiming.beginOperation(operationId, stage.name.lowercase())
                         Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
                         if (!ffmpegInitialized) {
                             FFmpeg.init(context)
                             ffmpegInitialized = true
                         }
+                        DownloaderTiming.finishOperation(stageOperation)
 
                         stage = DownloaderInitializationStage.ARIA2C
+                        stageOperation =
+                            DownloaderTiming.beginOperation(operationId, stage.name.lowercase())
                         Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
                         if (!aria2cInitialized) {
                             Aria2c.init(context)
                             aria2cInitialized = true
                         }
+                        DownloaderTiming.finishOperation(stageOperation)
 
                         stage = DownloaderInitializationStage.COOKIES
+                        stageOperation =
+                            DownloaderTiming.beginOperation(operationId, stage.name.lowercase())
                         Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
                         if (CookieManager.getInstance().hasCookies()) {
                             val cookieContent =
@@ -194,12 +212,24 @@ class DownloaderRuntime private constructor() {
                         } else {
                             Log.i("RiftDownloader", "No saved cookies to restore.")
                         }
+                        DownloaderTiming.finishOperation(stageOperation)
 
                         withContext(Dispatchers.Main.immediate) {
                             mutableInitializationState.value = DownloaderInitialization.Ready
                         }
+                        DownloaderTiming.finishOperation(attemptOperation)
                         Log.i("RiftDownloader", "Initialization attempt $attempt succeeded.")
                     } catch (cancelled: CancellationException) {
+                        DownloaderTiming.finishOperation(
+                            stageOperation,
+                            outcome = "cancelled",
+                            error = cancelled,
+                        )
+                        DownloaderTiming.finishOperation(
+                            attemptOperation,
+                            outcome = "cancelled",
+                            error = cancelled,
+                        )
                         Log.i(
                             "RiftDownloader",
                             "Initialization attempt $attempt was cancelled during ${stage.label}.",
@@ -212,6 +242,16 @@ class DownloaderRuntime private constructor() {
                             )
                         throw cancelled
                     } catch (error: Throwable) {
+                        DownloaderTiming.finishOperation(
+                            stageOperation,
+                            outcome = "failed",
+                            error = error,
+                        )
+                        DownloaderTiming.finishOperation(
+                            attemptOperation,
+                            outcome = "failed",
+                            error = error,
+                        )
                         val exceptionType =
                             error::class.java.simpleName.ifBlank { "Unknown exception" }
                         Log.e(
