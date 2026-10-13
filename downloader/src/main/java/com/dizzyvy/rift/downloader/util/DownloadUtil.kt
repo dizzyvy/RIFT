@@ -888,7 +888,6 @@ object DownloadUtil {
         Result.failure(error)
     }
             }
-        }
 
     @CheckResult
     fun executeCustomCommandTask(
