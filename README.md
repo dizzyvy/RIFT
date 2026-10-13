@@ -6,7 +6,7 @@ The launcher uses the RIFT wordmark and lightning-bolt logo. The Android applica
 
 ## Development status
 
-The current development version is **0.14.0** (version code 12), based on the stable `v0.12.0` release at commit `17fb5771d6fad942f5500269b731664efc5af9be`. This integration is in progress and has not been built or tested yet.
+The current development version is **0.14.0** (version code 13), based on the stable `v0.12.0` release at commit `17fb5771d6fad942f5500269b731664efc5af9be`. This remains a development build.
 
 The integrated downloader provides yt-dlp downloads, queue management, format selection, task logs, download history, settings, and troubleshooting. It opens from RIFT's Settings sheet, accepts shared HTTP(S) links, and is embedded in RIFT's theme without a separate launcher or activity.
 
@@ -36,7 +36,7 @@ Open the project in Android Studio and allow Gradle sync to install the configur
 ./gradlew assembleDebug
 ```
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+The build creates separate APKs in `app/build/outputs/apk/debug/`: `app-arm64-v8a-debug.apk`, `app-armeabi-v7a-debug.apk`, `app-x86-debug.apk`, and `app-x86_64-debug.apk`. There is no universal APK. Choose the APK matching the device's ABI.
 
 ## Run unit tests
 
@@ -46,7 +46,7 @@ Run the local JVM unit tests with:
 ./gradlew testDebugUnitTest
 ```
 
-The Android CI workflow runs `testDebugUnitTest` and then `assembleDebug` as separate ordered steps for pushes, pull requests, and manual runs. No Gradle task was run while preparing this work.
+The Android CI workflow runs `testDebugUnitTest` and then `assembleDebug` as separate ordered steps. It uploads a separate artifact for each supported ABI; trusted push builds name the tablet-compatible artifact `app-debug-apk-arm64-v8a`.
 
 ## Features
 
@@ -70,7 +70,7 @@ Playback formats depend on the codecs available on the phone. Android's built-in
 
 ## Install on a phone
 
-Build `app/build/outputs/apk/debug/app-debug.apk`, copy it to the phone, open it in My Files, and approve Android's install prompt if shown. The debug APK is signed for development installs and is not a Play Store release.
+Download the ABI-specific APK artifact from the GitHub Actions run, choose the artifact matching the device, copy its APK to the phone, open it in My Files, and approve Android's install prompt if shown. The debug APK is signed for development installs and is not a Play Store release.
 
 ## Historical debug APKs
 

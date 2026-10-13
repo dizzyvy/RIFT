@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.webkit.CookieManager
 import com.dizzyvy.rift.downloader.download.DownloaderV2
 import com.dizzyvy.rift.downloader.download.DownloaderV2Impl
 import com.dizzyvy.rift.downloader.ui.page.downloadv2.configure.DownloadDialogViewModel
@@ -39,9 +40,9 @@ import com.yausername.aria2c.Aria2c
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,15 +51,42 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
+import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 sealed interface DownloaderInitialization {
     data object NotStarted : DownloaderInitialization
-    data object Preparing : DownloaderInitialization
+    data class Preparing(val attempt: Int) : DownloaderInitialization
     data object Ready : DownloaderInitialization
     data class Failed(val message: String) : DownloaderInitialization
+}
+
+private enum class DownloaderInitializationStage(
+    val label: String,
+    val recoveryHint: String,
+) {
+    ENVIRONMENT(
+        "environment configuration",
+        "Check app storage access and available device storage, then retry.",
+    ),
+    YOUTUBE_DL(
+        "yt-dlp initialization",
+        "Check that this APK matches the device architecture and that native libraries can be extracted.",
+    ),
+    FFMPEG(
+        "FFmpeg initialization",
+        "Check that this APK matches the device architecture and that native libraries can be extracted.",
+    ),
+    ARIA2C(
+        "aria2c initialization",
+        "Check that this APK matches the device architecture and that native libraries can be extracted.",
+    ),
+    COOKIES(
+        "cookie restoration",
+        "Check that downloader app storage is accessible. Cookie contents are not displayed.",
+    ),
 }
 
 class DownloaderRuntime private constructor() {
@@ -75,7 +103,7 @@ class DownloaderRuntime private constructor() {
         private var youtubeDlInitialized = false
         private var ffmpegInitialized = false
         private var aria2cInitialized = false
-        private var initializationJob: Job? = null
+        private var initializationAttempt = 0
 
         lateinit var clipboard: ClipboardManager
             private set
@@ -118,45 +146,88 @@ class DownloaderRuntime private constructor() {
 
         fun initialize(appContext: Context) {
             synchronized(initializationLock) {
-                if (mutableInitializationState.value == DownloaderInitialization.Ready) return
-                if (initializationJob?.isActive == true) return
+                when (mutableInitializationState.value) {
+                    DownloaderInitialization.Ready,
+                    is DownloaderInitialization.Preparing -> return
+                    else -> Unit
+                }
 
                 val applicationContext = appContext.applicationContext
                 ensureApplicationScope()
-                mutableInitializationState.value = DownloaderInitialization.Preparing
+                val attempt = ++initializationAttempt
+                mutableInitializationState.value = DownloaderInitialization.Preparing(attempt)
 
-                initializationJob =
-                    applicationScope.launch(Dispatchers.IO) {
-                        try {
-                            ensureEnvironmentInitialized(applicationContext)
-                            if (!youtubeDlInitialized) {
-                                YoutubeDL.init(context)
-                                youtubeDlInitialized = true
-                            }
-                            if (!ffmpegInitialized) {
-                                FFmpeg.init(context)
-                                ffmpegInitialized = true
-                            }
-                            if (!aria2cInitialized) {
-                                Aria2c.init(context)
-                                aria2cInitialized = true
-                            }
-                            DownloadUtil.getCookiesContentFromDatabase()
-                                .getOrNull()
-                                ?.let { writeContentToFile(it, context.getCookiesFile()) }
-                            withContext(Dispatchers.Main.immediate) {
-                                mutableInitializationState.value = DownloaderInitialization.Ready
-                            }
-                        } catch (error: Throwable) {
-                            Log.e("RiftDownloader", "Downloader initialization failed.", error)
-                            withContext(Dispatchers.Main.immediate) {
-                                mutableInitializationState.value =
-                                    DownloaderInitialization.Failed(
-                                        error.message ?: "Downloader tools could not be initialized.",
-                                    )
-                            }
+                applicationScope.launch(Dispatchers.IO) {
+                    var stage = DownloaderInitializationStage.ENVIRONMENT
+                    try {
+                        Log.i("RiftDownloader", "Initialization attempt $attempt started.")
+                        Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
+                        ensureEnvironmentInitialized(applicationContext)
+
+                        stage = DownloaderInitializationStage.YOUTUBE_DL
+                        Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
+                        if (!youtubeDlInitialized) {
+                            YoutubeDL.init(context)
+                            youtubeDlInitialized = true
+                        }
+
+                        stage = DownloaderInitializationStage.FFMPEG
+                        Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
+                        if (!ffmpegInitialized) {
+                            FFmpeg.init(context)
+                            ffmpegInitialized = true
+                        }
+
+                        stage = DownloaderInitializationStage.ARIA2C
+                        Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
+                        if (!aria2cInitialized) {
+                            Aria2c.init(context)
+                            aria2cInitialized = true
+                        }
+
+                        stage = DownloaderInitializationStage.COOKIES
+                        Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
+                        if (CookieManager.getInstance().hasCookies()) {
+                            val cookieContent =
+                                DownloadUtil.getCookiesContentFromDatabase().getOrThrow()
+                            writeContentToFile(cookieContent, context.getCookiesFile())
+                        } else {
+                            Log.i("RiftDownloader", "No saved cookies to restore.")
+                        }
+
+                        withContext(Dispatchers.Main.immediate) {
+                            mutableInitializationState.value = DownloaderInitialization.Ready
+                        }
+                        Log.i("RiftDownloader", "Initialization attempt $attempt succeeded.")
+                    } catch (cancelled: CancellationException) {
+                        Log.i(
+                            "RiftDownloader",
+                            "Initialization attempt $attempt was cancelled during ${stage.label}.",
+                            cancelled,
+                        )
+                        mutableInitializationState.value =
+                            DownloaderInitialization.Failed(
+                                "${stage.label.replaceFirstChar(Char::uppercase)} was interrupted " +
+                                    "(CancellationException). ${stage.recoveryHint}",
+                            )
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        val exceptionType =
+                            error::class.java.simpleName.ifBlank { "Unknown exception" }
+                        Log.e(
+                            "RiftDownloader",
+                            "Initialization attempt $attempt failed during ${stage.label}.",
+                            error,
+                        )
+                        withContext(Dispatchers.Main.immediate) {
+                            mutableInitializationState.value =
+                                DownloaderInitialization.Failed(
+                                    "${stage.label.replaceFirstChar(Char::uppercase)} failed " +
+                                        "($exceptionType). ${stage.recoveryHint}",
+                                )
                         }
                     }
+                }
             }
         }
 
@@ -226,17 +297,21 @@ class DownloaderRuntime private constructor() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 NotificationUtil.createNotificationChannel()
             }
-            startKoin {
-                androidLogger()
-                androidContext(appContext)
-                modules(
-                    module {
-                        single<DownloaderV2> { DownloaderV2Impl(appContext) }
-                        viewModel { DownloadDialogViewModel(downloader = get()) }
-                        viewModel { CookiesViewModel() }
-                        viewModel { VideoListViewModel() }
-                    },
-                )
+            val downloaderModule =
+                module {
+                    single<DownloaderV2> { DownloaderV2Impl(appContext) }
+                    viewModel { DownloadDialogViewModel(downloader = get()) }
+                    viewModel { CookiesViewModel() }
+                    viewModel { VideoListViewModel() }
+                }
+            if (GlobalContext.getOrNull() == null) {
+                startKoin {
+                    androidLogger()
+                    androidContext(appContext)
+                    modules(downloaderModule)
+                }
+            } else {
+                GlobalContext.loadKoinModules(downloaderModule)
             }
         }
 

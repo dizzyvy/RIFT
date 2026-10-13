@@ -141,12 +141,21 @@ fun RiftDownloaderFeature(
     ) {
         LaunchedEffect(context) { DownloaderRuntime.initialize(context.applicationContext) }
         when (initialization) {
-            DownloaderInitialization.NotStarted,
-            DownloaderInitialization.Preparing -> InitializationScreen(onClose)
+            DownloaderInitialization.NotStarted -> InitializationScreen(onClose)
+            is DownloaderInitialization.Preparing ->
+                InitializationScreen(
+                    onClose = onClose,
+                    progressMessage =
+                        if (initialization.attempt == 1) {
+                            "Preparing downloader…"
+                        } else {
+                            "Retrying downloader initialization (attempt ${initialization.attempt})…"
+                        },
+                )
             is DownloaderInitialization.Failed ->
                 InitializationScreen(
                     onClose = onClose,
-                    error = (initialization as DownloaderInitialization.Failed).message,
+                    error = initialization.message,
                     onRetry = { DownloaderRuntime.initialize(context.applicationContext) },
                 )
             DownloaderInitialization.Ready -> {
@@ -170,6 +179,7 @@ fun RiftDownloaderFeature(
 @Composable
 private fun InitializationScreen(
     onClose: () -> Unit,
+    progressMessage: String = "Preparing downloader…",
     error: String? = null,
     onRetry: (() -> Unit)? = null,
 ) {
@@ -192,7 +202,7 @@ private fun InitializationScreen(
         ) {
             if (error == null) {
                 CircularProgressIndicator()
-                Text("Preparing downloader…", modifier = Modifier.padding(top = 16.dp))
+                Text(progressMessage, modifier = Modifier.padding(top = 16.dp))
             } else {
                 Text(error, color = MaterialTheme.colorScheme.error)
                 Button(onClick = { onRetry?.invoke() }, modifier = Modifier.padding(top = 16.dp)) {

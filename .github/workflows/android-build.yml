@@ -104,19 +104,67 @@ jobs:
                 ;;
             esac
           fi
-      - name: Upload trusted debug APK
+      - name: Upload trusted arm64-v8a debug APK
         if: inputs.signing_enabled
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: app-debug-apk-arm64-v8a
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
           if-no-files-found: error
           retention-days: 14
-      - name: Upload pull-request debug APK
+      - name: Upload trusted armeabi-v7a debug APK
+        if: inputs.signing_enabled
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-armeabi-v7a
+          path: app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload trusted x86 debug APK
+        if: inputs.signing_enabled
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-x86
+          path: app/build/outputs/apk/debug/app-x86-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload trusted x86_64 debug APK
+        if: inputs.signing_enabled
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-x86_64
+          path: app/build/outputs/apk/debug/app-x86_64-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload pull-request arm64-v8a debug APK
         if: ${{ !inputs.signing_enabled }}
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk-pull-request
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: app-debug-apk-arm64-v8a-pull-request
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload pull-request armeabi-v7a debug APK
+        if: ${{ !inputs.signing_enabled }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-armeabi-v7a-pull-request
+          path: app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload pull-request x86 debug APK
+        if: ${{ !inputs.signing_enabled }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-x86-pull-request
+          path: app/build/outputs/apk/debug/app-x86-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload pull-request x86_64 debug APK
+        if: ${{ !inputs.signing_enabled }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-x86_64-pull-request
+          path: app/build/outputs/apk/debug/app-x86_64-debug.apk
           if-no-files-found: error
           retention-days: 14

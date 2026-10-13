@@ -41,7 +41,7 @@ jobs:
       - name: Download debug APK
         uses: actions/download-artifact@v4
         with:
-          name: app-debug-apk
+          name: app-debug-apk-arm64-v8a
 
       - name: Prepare release APK
         id: apk
@@ -51,7 +51,7 @@ jobs:
           else
             filename="RIFT-${GITHUB_REF_NAME}-debug.apk"
           fi
-          mv app-debug.apk "$filename"
+          mv app-arm64-v8a-debug.apk "$filename"
           echo "filename=$filename" >> "$GITHUB_OUTPUT"
 
       - name: Remove outdated v0.12.0 APK asset

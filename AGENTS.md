@@ -20,7 +20,7 @@ Use JDK 17 and Android SDK Platform 37. The checked-in Android CI workflow runs:
 ./gradlew --no-daemon assembleDebug
 ```
 
-CI runs the test task before the assemble task in separate steps. For a focused local check, run `./gradlew testDebugUnitTest` and then `./gradlew assembleDebug`. The APK output is `app/build/outputs/apk/debug/app-debug.apk`. These commands are read from the project configuration and CI workflow; do not claim a check passed unless it was actually run and its result observed.
+CI runs the test task before the assemble task in separate steps. For a focused local check, run `./gradlew testDebugUnitTest` and then `./gradlew assembleDebug`. ABI-specific APK outputs are `app/build/outputs/apk/debug/app-{abi}-debug.apk` for `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64`; there is no universal APK. These commands are read from the project configuration and CI workflow; do not claim a check passed unless it was actually run and its result observed.
 
 Do not add setup, lint, or test tooling without first checking the existing manifests, dependency catalog, and workflows. Document verified workflow changes in the README and this guide when in scope.
 
