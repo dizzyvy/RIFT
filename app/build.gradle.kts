@@ -48,6 +48,12 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             if (permanentSigningConfigured) {
