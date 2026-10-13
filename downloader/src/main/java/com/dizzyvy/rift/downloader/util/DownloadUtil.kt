@@ -134,11 +134,11 @@ object DownloadUtil {
         taskKey: String? = null,
         timingTrace: DownloadTimingTrace? = null,
     ): Result<VideoInfo> =
-        request.runCatching {
+        kotlin.runCatching<VideoInfo> {
             timingTrace?.extractorStarted()
             val response: YoutubeDLResponse =
                 YoutubeDL.getInstance().execute(request, taskKey, null)
-            jsonFormat.decodeFromString(response.out)
+            jsonFormat.decodeFromString<VideoInfo>(response.out)
         }.onSuccess { timingTrace?.formatsAvailable() }
             .onFailure { timingTrace?.extractorFailed(it) }
 
