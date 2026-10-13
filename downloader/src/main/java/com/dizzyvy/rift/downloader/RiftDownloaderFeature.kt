@@ -140,22 +140,22 @@ fun RiftDownloaderFeature(
         LocalWindowWidthState provides widthClass,
     ) {
         LaunchedEffect(context) { DownloaderRuntime.initialize(context.applicationContext) }
-        when (initialization) {
+        when (val state = initialization) {
             DownloaderInitialization.NotStarted -> InitializationScreen(onClose)
             is DownloaderInitialization.Preparing ->
                 InitializationScreen(
                     onClose = onClose,
                     progressMessage =
-                        if (initialization.attempt == 1) {
+                        if (state.attempt == 1) {
                             "Preparing downloader…"
                         } else {
-                            "Retrying downloader initialization (attempt ${initialization.attempt})…"
+                            "Retrying downloader initialization (attempt ${state.attempt})…"
                         },
                 )
             is DownloaderInitialization.Failed ->
                 InitializationScreen(
                     onClose = onClose,
-                    error = initialization.message,
+                    error = state.message,
                     onRetry = { DownloaderRuntime.initialize(context.applicationContext) },
                 )
             DownloaderInitialization.Ready -> {
