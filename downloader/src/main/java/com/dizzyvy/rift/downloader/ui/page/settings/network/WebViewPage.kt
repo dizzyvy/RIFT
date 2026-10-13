@@ -26,7 +26,7 @@ import com.google.accompanist.web.AccompanistWebChromeClient
 import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
-import com.google.android.material.R
+import com.dizzyvy.rift.downloader.R
 import com.dizzyvy.rift.downloader.util.PreferenceUtil.updateString
 import com.dizzyvy.rift.downloader.util.USER_AGENT_STRING
 import com.dizzyvy.rift.downloader.util.connectWithDelimiter

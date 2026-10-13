@@ -76,7 +76,6 @@ import com.dizzyvy.rift.downloader.ui.component.HelpDialog
 import com.dizzyvy.rift.downloader.ui.component.PreferenceItemVariant
 import com.dizzyvy.rift.downloader.ui.component.PreferenceSwitchWithContainer
 import com.dizzyvy.rift.downloader.ui.component.TemplateItem
-import com.dizzyvy.rift.downloader.ui.page.settings.about.YtdlpRepository
 import com.dizzyvy.rift.downloader.util.CUSTOM_COMMAND
 import com.dizzyvy.rift.downloader.util.DatabaseUtil
 import com.dizzyvy.rift.downloader.util.PreferenceUtil
@@ -88,6 +87,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "TemplateListPage"
+private const val YTDLP_REPOSITORY_URL = "https://github.com/yt-dlp/yt-dlp"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -404,7 +404,7 @@ fun TemplateListPage(onNavigateBack: () -> Unit, onNavigateToEditPage: (Int) -> 
             TextButton(
                 onClick = {
                     showHelpDialog = false
-                    uriHandler.openUri(YtdlpRepository)
+                    uriHandler.openUri(YTDLP_REPOSITORY_URL)
                 }
             ) {
                 Text(text = stringResource(id = R.string.learn_more))

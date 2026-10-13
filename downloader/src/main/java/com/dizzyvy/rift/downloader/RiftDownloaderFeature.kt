@@ -166,6 +166,7 @@ fun RiftDownloaderFeature(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InitializationScreen(
     onClose: () -> Unit,
@@ -410,6 +411,7 @@ private fun DrawerDestination(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DownloaderSettings(onNavigateBack: () -> Unit, onNavigate: (String) -> Unit) {
     Scaffold(

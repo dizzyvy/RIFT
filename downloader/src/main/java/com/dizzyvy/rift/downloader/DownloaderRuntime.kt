@@ -143,7 +143,7 @@ class DownloaderRuntime private constructor() {
                             }
                             DownloadUtil.getCookiesContentFromDatabase()
                                 .getOrNull()
-                                ?.let { writeContentToFile(it, getCookiesFile()) }
+                                ?.let { writeContentToFile(it, context.getCookiesFile()) }
                             withContext(Dispatchers.Main.immediate) {
                                 mutableInitializationState.value = DownloaderInitialization.Ready
                             }

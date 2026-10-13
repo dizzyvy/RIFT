@@ -444,14 +444,12 @@ fun DownloadDirectoryPreferences(onNavigateBack: () -> Unit) {
                         ) {
                             openDirectoryChooser(Directory.CUSTOM_COMMAND)
                         }
-            }
-            DownloaderRuntime.commandDownloadTreeUri?.let { treeUri ->
-                        item {
-                            val destinationName =
-                                DocumentFile.fromTreeUri(context, Uri.parse(treeUri))?.name
-                                    ?: stringResource(R.string.set_directory_desc)
-                            PreferenceInfo(text = "Completed command downloads are copied to $destinationName.")
-                        }
+                    }
+                    DownloaderRuntime.commandDownloadTreeUri?.let { treeUri ->
+                        val destinationName =
+                            DocumentFile.fromTreeUri(context, Uri.parse(treeUri))?.name
+                                ?: stringResource(R.string.set_directory_desc)
+                        PreferenceInfo(text = "Completed command downloads are copied to $destinationName.")
                         OutlinedButtonChip(
                             label = stringResource(R.string.yt_dlp_docs),
                             icon = Icons.AutoMirrored.Outlined.OpenInNew,
