@@ -5,16 +5,16 @@ import android.util.Log
 import com.dizzyvy.rift.downloader.BuildConfig
 import java.util.UUID
 
-internal object DownloaderTiming {
-    private const val TAG = "RiftDownloaderTiming"
+private const val DOWNLOADER_TIMING_TAG = "RiftDownloaderTiming"
 
+internal object DownloaderTiming {
     fun newOperationId(prefix: String): String? =
         if (BuildConfig.DEBUG) "$prefix-${UUID.randomUUID().toString().take(8)}" else null
 
     fun beginOperation(id: String, stage: String): TimingOperation? {
         if (!BuildConfig.DEBUG) return null
         val startedAt = SystemClock.elapsedRealtime()
-        Log.d(TAG, "id=$id event=${stage}_started elapsed_realtime_ms=$startedAt")
+        Log.d(DOWNLOADER_TIMING_TAG, "id=$id event=${stage}_started elapsed_realtime_ms=$startedAt")
         return TimingOperation(id, stage, startedAt)
     }
 
@@ -27,7 +27,7 @@ internal object DownloaderTiming {
         val finishedAt = SystemClock.elapsedRealtime()
         val errorType = error?.let { it::class.java.simpleName.ifBlank { "Unknown" } }
         Log.d(
-            TAG,
+            DOWNLOADER_TIMING_TAG,
             "id=${operation.id} event=${operation.stage}_finished " +
                 "elapsed_realtime_ms=$finishedAt duration_ms=${finishedAt - operation.startedAt} " +
                 "outcome=$outcome${errorType?.let { " exception_type=$it" }.orEmpty()}",
@@ -50,8 +50,8 @@ internal object DownloaderTiming {
 
 internal data class TimingOperation(val id: String, val stage: String, val startedAt: Long)
 
-internal class DownloadTimingTrace {
-    val id: String = UUID.randomUUID().toString().take(8)
+class DownloadTimingTrace internal constructor() {
+    internal val id: String = UUID.randomUUID().toString().take(8)
     private val submittedAt = SystemClock.elapsedRealtime()
     private var extractorStartedAt: Long? = null
     private var formatsAvailableAt: Long? = null
@@ -68,7 +68,7 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun extractorStarted() {
+    internal fun extractorStarted() {
         if (extractorStartedAt != null) return
         val now = SystemClock.elapsedRealtime()
         extractorStartedAt = now
@@ -76,7 +76,7 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun formatsAvailable() {
+    internal fun formatsAvailable() {
         if (formatsAvailableAt != null) return
         val now = SystemClock.elapsedRealtime()
         formatsAvailableAt = now
@@ -91,26 +91,26 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun extractorFailed(error: Throwable) {
+    internal fun extractorFailed(error: Throwable) {
         val now = SystemClock.elapsedRealtime()
         val errorType = error::class.java.simpleName.ifBlank { "Unknown" }
         log("extractor_failed", now, "outcome=failed exception_type=$errorType")
     }
 
     @Synchronized
-    fun formatContentLaidOut() {
+    internal fun formatContentLaidOut() {
         contentLaidOut = true
         recordFormatUiReady()
     }
 
     @Synchronized
-    fun formatSheetExpanded() {
+    internal fun formatSheetExpanded() {
         sheetExpanded = true
         recordFormatUiReady()
     }
 
     @Synchronized
-    fun queued() {
+    internal fun queued() {
         if (queuedAt != null) return
         val now = SystemClock.elapsedRealtime()
         queuedAt = now
@@ -120,7 +120,7 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun queueSlotStarted() {
+    internal fun queueSlotStarted() {
         if (queueSlotStartedAt != null) return
         val now = SystemClock.elapsedRealtime()
         val enqueuedAt = queuedAt ?: return
@@ -129,7 +129,7 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun transferStarted() {
+    internal fun transferStarted() {
         if (transferStartedAt != null) return
         val now = SystemClock.elapsedRealtime()
         transferStartedAt = now
@@ -139,7 +139,7 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun transferFinished(error: Throwable? = null) {
+    internal fun transferFinished(error: Throwable? = null) {
         val now = SystemClock.elapsedRealtime()
         val startedAt = transferStartedAt ?: return
         val outcome = if (error == null) "success" else "failed"
@@ -156,7 +156,7 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun postProcessingStarted() {
+    internal fun postProcessingStarted() {
         if (postProcessingStartedAt != null) return
         val now = SystemClock.elapsedRealtime()
         postProcessingStartedAt = now
@@ -164,7 +164,7 @@ internal class DownloadTimingTrace {
     }
 
     @Synchronized
-    fun postProcessingFinished(error: Throwable? = null) {
+    internal fun postProcessingFinished(error: Throwable? = null) {
         val now = SystemClock.elapsedRealtime()
         val startedAt = postProcessingStartedAt ?: return
         val outcome = if (error == null) "success" else "failed"
@@ -189,7 +189,7 @@ internal class DownloadTimingTrace {
 
     private fun log(event: String, elapsedRealtimeMs: Long, details: String = "") {
         Log.d(
-            TAG,
+            DOWNLOADER_TIMING_TAG,
             "id=$id event=$event elapsed_realtime_ms=$elapsedRealtimeMs $details",
         )
     }

@@ -670,8 +670,8 @@ object DownloadUtil {
         playlistItem: Int = 0,
         taskId: String,
         downloadPreferences: DownloadPreferences,
-        progressCallback: ((Float, Long, String) -> Unit)?,
         timingTrace: DownloadTimingTrace? = null,
+        progressCallback: ((Float, Long, String) -> Unit)?,
     ): Result<List<String>> {
         if (videoInfo == null)
             return Result.failure(Throwable(context.getString(R.string.fetch_info_error_msg)))

@@ -33,7 +33,7 @@ data class Task(
     val id: String = makeId(url, type, preferences),
 ) : Comparable<Task> {
 
-    internal var timingTrace: DownloadTimingTrace? = null
+    @Transient internal var timingTrace: DownloadTimingTrace? = null
 
     val timeCreated: Long = System.currentTimeMillis()
 
