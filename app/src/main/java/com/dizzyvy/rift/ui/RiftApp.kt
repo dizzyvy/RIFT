@@ -308,6 +308,7 @@ fun RiftApp(
                 playback = playback,
                 artworkRepository = artworkRepository,
                 onBack = { showPlayer = false },
+                onOpenDownloader = { showDownloader = true },
                 onPlayPause = playbackController::playPause,
                 onNext = playbackController::skipNext,
                 onPrevious = playbackController::skipPrevious,

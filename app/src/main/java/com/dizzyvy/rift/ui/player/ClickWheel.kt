@@ -39,11 +39,11 @@ import kotlin.math.atan2
 fun ClickWheel(
     playing: Boolean,
     queueOpen: Boolean,
-    onMenu: () -> Unit,
+    onOpenDownloader: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlayback: () -> Unit,
     onNext: () -> Unit,
-    onSelect: () -> Unit,
+    onToggleQueue: () -> Unit,
     onRotate: (Float) -> Unit,
     onRotateStart: () -> Unit = {},
     onRotateEnd: () -> Unit = {},
@@ -106,9 +106,9 @@ fun ClickWheel(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            // A second inset disc gives the wheel a clean inner track; the center is a plain SELECT control.
+            // A second inset disc gives the wheel a clean inner track; the center toggles Up Next.
             Box(Modifier.fillMaxSize().padding(if (compact) 24.dp else 36.dp).clip(CircleShape).background(wheelInsetColor))
-            WheelLabel("MENU", Modifier.align(Alignment.TopCenter).padding(top = if (compact) 8.dp else 19.dp), onMenu)
+            WheelLabel("DLR", "Open downloader", Modifier.align(Alignment.TopCenter).padding(top = if (compact) 8.dp else 19.dp), onOpenDownloader)
             WheelIcon(Icons.Default.SkipPrevious, "Previous track", Modifier.align(Alignment.CenterStart).padding(start = if (compact) 4.dp else 15.dp), onPrevious)
             WheelIcon(Icons.Default.SkipNext, "Next track", Modifier.align(Alignment.CenterEnd).padding(end = if (compact) 4.dp else 15.dp), onNext)
             WheelIcon(
@@ -117,17 +117,17 @@ fun ClickWheel(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 8.dp else 19.dp),
                 onTogglePlayback,
             )
-            Surface(onClick = onSelect, modifier = Modifier.size(if (compact) 68.dp else 104.dp).semantics { contentDescription = if (queueOpen) "Close Up Next" else "Open Up Next" }, shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                Box(contentAlignment = Alignment.Center) { Text("SELECT", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+            Surface(onClick = onToggleQueue, modifier = Modifier.size(if (compact) 68.dp else 104.dp).semantics { contentDescription = if (queueOpen) "Close Up Next" else "Open Up Next" }, shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+                Box(contentAlignment = Alignment.Center) { Text("QUEUE", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
             }
         }
     }
 }
 
 @Composable
-private fun WheelLabel(label: String, modifier: Modifier, onClick: () -> Unit) {
-    Box(modifier.sizeIn(minWidth = 58.dp, minHeight = 48.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = "Menu" }, contentAlignment = Alignment.Center) {
-        Text(label, fontSize = if (label == "MENU") 11.sp else 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+private fun WheelLabel(label: String, description: String, modifier: Modifier, onClick: () -> Unit) {
+    Box(modifier.sizeIn(minWidth = 58.dp, minHeight = 48.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = description }, contentAlignment = Alignment.Center) {
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

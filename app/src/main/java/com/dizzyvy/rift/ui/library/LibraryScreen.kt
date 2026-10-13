@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,6 +77,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
@@ -88,6 +91,8 @@ import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
 import com.dizzyvy.rift.music.artwork.ArtworkRepository
+import com.dizzyvy.rift.R
+import com.dizzyvy.rift.ui.theme.RiftPalette
 import com.dizzyvy.rift.music.library.AlbumBrowseItem
 import com.dizzyvy.rift.music.library.ArtistBrowseItem
 import com.dizzyvy.rift.music.library.DevicePlaylist
@@ -313,11 +318,18 @@ fun LibraryScreen(
                 Modifier.fillMaxWidth().heightIn(min = 56.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ShrikhandHeading(
-                    "Your music",
-                    MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f),
-                )
+                Box(Modifier.weight(1f).heightIn(min = 56.dp), contentAlignment = Alignment.CenterStart) {
+                    Image(
+                        painter = painterResource(R.drawable.rift_logo),
+                        contentDescription = "RIFT logo",
+                        modifier = Modifier
+                            .size(width = 92.dp, height = 56.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(RiftPalette.lightSurface)
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
                 IconButton(
                     onClick = { searchExpanded = true },
                     modifier = Modifier.size(48.dp).semantics { contentDescription = "Search library" },
