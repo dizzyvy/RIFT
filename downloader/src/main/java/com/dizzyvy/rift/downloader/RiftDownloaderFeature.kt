@@ -54,6 +54,7 @@ import com.dizzyvy.rift.downloader.download.DownloaderV2
 import com.dizzyvy.rift.downloader.ui.common.LocalDarkTheme
 import com.dizzyvy.rift.downloader.ui.common.LocalFixedColorRoles
 import com.dizzyvy.rift.downloader.ui.common.LocalWindowWidthState
+import com.dizzyvy.rift.downloader.ui.page.YtdlpUpdater
 import com.dizzyvy.rift.downloader.ui.page.command.TaskListPage
 import com.dizzyvy.rift.downloader.ui.page.command.TaskLogPage
 import com.dizzyvy.rift.downloader.ui.page.downloadv2.DownloadPageV2
@@ -159,6 +160,7 @@ fun RiftDownloaderFeature(
                     onRetry = { DownloaderRuntime.initialize(context.applicationContext) },
                 )
             DownloaderInitialization.Ready -> {
+                YtdlpUpdater()
                 val dialogViewModel: DownloadDialogViewModel = koinViewModel()
                 val downloader: DownloaderV2 = koinInject()
                 val cookiesViewModel: CookiesViewModel = koinViewModel()
