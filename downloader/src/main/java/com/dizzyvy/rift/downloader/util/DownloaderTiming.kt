@@ -91,6 +91,12 @@ class DownloadTimingTrace internal constructor() {
     }
 
     @Synchronized
+    internal fun wrapperElapsedTimeReported(elapsedTimeMs: Long) {
+        val now = SystemClock.elapsedRealtime()
+        log("wrapper_elapsed_time_reported", now, "response_elapsed_time_ms=$elapsedTimeMs")
+    }
+
+    @Synchronized
     internal fun extractorFailed(error: Throwable) {
         val now = SystemClock.elapsedRealtime()
         val errorType = error::class.java.simpleName.ifBlank { "Unknown" }

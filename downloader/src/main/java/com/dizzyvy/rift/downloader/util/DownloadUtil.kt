@@ -142,6 +142,7 @@ object DownloadUtil {
                 ) {
                     YoutubeDL.getInstance().execute(request, taskKey, null)
                 }
+            timingTrace?.wrapperElapsedTimeReported(response.elapsedTime)
             DownloaderTiming.measure(
                 timingTrace?.let { DownloaderTiming.beginOperation(it.id, "json_parse") },
             ) {
