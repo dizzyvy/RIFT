@@ -137,8 +137,16 @@ object DownloadUtil {
         kotlin.runCatching<VideoInfo> {
             timingTrace?.extractorStarted()
             val response: YoutubeDLResponse =
-                YoutubeDL.getInstance().execute(request, taskKey, null)
-            jsonFormat.decodeFromString<VideoInfo>(response.out)
+                DownloaderTiming.measure(
+                    timingTrace?.let { DownloaderTiming.beginOperation(it.id, "execute") },
+                ) {
+                    YoutubeDL.getInstance().execute(request, taskKey, null)
+                }
+            DownloaderTiming.measure(
+                timingTrace?.let { DownloaderTiming.beginOperation(it.id, "json_parse") },
+            ) {
+                jsonFormat.decodeFromString<VideoInfo>(response.out)
+            }
         }.onSuccess { timingTrace?.formatsAvailable() }
             .onFailure { timingTrace?.extractorFailed(it) }
 
