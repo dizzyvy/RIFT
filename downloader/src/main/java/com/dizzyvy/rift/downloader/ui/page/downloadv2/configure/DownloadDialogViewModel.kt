@@ -11,6 +11,7 @@ import com.dizzyvy.rift.downloader.util.DownloaderTiming
 import com.dizzyvy.rift.downloader.util.PlaylistResult
 import com.dizzyvy.rift.downloader.util.VideoInfo
 import com.yausername.youtubedl_android.YoutubeDL
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -171,12 +172,17 @@ class DownloadDialogViewModel(private val downloader: DownloaderV2) : ViewModel(
                                     timingTrace = timingTrace,
                                 )
                             }
+                            timingTrace?.formatResultPublished("success")
                             hideDialog()
                         }
                     }
                     .onFailure { th ->
                         withContext(Dispatchers.Main) {
                             mSheetStateFlow.update { SheetState.Error(action, throwable = th) }
+                            timingTrace?.formatResultPublished(
+                                outcome = if (th is CancellationException) "cancelled" else "failed",
+                                error = th,
+                            )
                         }
                     }
             }

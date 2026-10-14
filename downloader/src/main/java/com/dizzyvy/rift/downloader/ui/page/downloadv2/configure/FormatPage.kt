@@ -180,6 +180,7 @@ fun FormatPage(
             taskWithState.task.timingTrace = timingTrace
             timingTrace?.queued()
             downloader.enqueue(taskWithState)
+            timingTrace?.taskEnqueued()
 
             if (diffSubtitleLanguages.isNotEmpty()) {
                 showUpdateSubtitleDialog = true

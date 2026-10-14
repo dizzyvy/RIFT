@@ -327,6 +327,7 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
                         },
                     )
                     .onSuccess { pathList ->
+                        timingTrace?.taskFinished("success")
                         downloadState = Completed(pathList.firstOrNull())
 
                         val text =
@@ -353,8 +354,10 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
                     }
                     .onFailure { throwable ->
                         if (throwable is YoutubeDL.CanceledException) {
+                            timingTrace?.taskFinished("cancelled", throwable)
                             return@onFailure
                         }
+                        timingTrace?.taskFinished("failed", throwable)
                         downloadState = Error(throwable = throwable, action = Download)
                         NotificationUtil.notifyError(
                             title = viewState.title,
@@ -374,6 +377,7 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
                 if (res) {
                     preState.job.cancel()
                     val progress = if (preState is Running) preState.progress else null
+                    timingTrace?.taskFinished("cancelled")
                     NotificationUtil.cancelNotification(notificationId)
                     downloadState =
                         DownloadState.Canceled(action = preState.action, progress = progress)
@@ -381,9 +385,11 @@ class DownloaderV2Impl(private val appContext: Context) : DownloaderV2, KoinComp
                 return res
             }
             Idle -> {
+                timingTrace?.taskFinished("cancelled")
                 downloadState = DownloadState.Canceled(action = FetchInfo)
             }
             ReadyWithInfo -> {
+                timingTrace?.taskFinished("cancelled")
                 downloadState = DownloadState.Canceled(action = Download)
             }
 

@@ -168,13 +168,14 @@ class DownloaderRuntime private constructor() {
                     try {
                         Log.i("RiftDownloader", "Initialization attempt $attempt started.")
                         Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
-                        ensureEnvironmentInitialized(applicationContext)
+                        ensureEnvironmentInitialized(applicationContext, operationId)
                         DownloaderTiming.finishOperation(stageOperation)
 
                         stage = DownloaderInitializationStage.YOUTUBE_DL
                         stageOperation =
                             DownloaderTiming.beginOperation(operationId, stage.name.lowercase())
                         Log.i("RiftDownloader", "Attempt $attempt: ${stage.label}.")
+                        YoutubeDL.setTimingInstrumentationEnabled(BuildConfig.DEBUG)
                         if (!youtubeDlInitialized) {
                             YoutubeDL.init(context)
                             youtubeDlInitialized = true
@@ -271,10 +272,10 @@ class DownloaderRuntime private constructor() {
             }
         }
 
-        suspend fun ensureEnvironmentInitialized(appContext: Context) {
+        suspend fun ensureEnvironmentInitialized(appContext: Context, operationId: String? = null) {
             ensureApplicationScope()
             withContext(Dispatchers.IO) {
-                environmentInitialization.ensure {
+                environmentInitialization.ensure(operationId) {
                     configureEnvironment(appContext.applicationContext)
                 }
             }

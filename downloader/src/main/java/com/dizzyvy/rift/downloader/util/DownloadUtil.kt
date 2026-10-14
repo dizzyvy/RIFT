@@ -135,6 +135,7 @@ object DownloadUtil {
         timingTrace: DownloadTimingTrace? = null,
     ): Result<VideoInfo> =
         kotlin.runCatching<VideoInfo> {
+            timingTrace?.let { request.setTimingListener(it.id, it::wrapperTimingEvent) }
             timingTrace?.extractorStarted()
             val response: YoutubeDLResponse =
                 DownloaderTiming.measure(
@@ -161,42 +162,48 @@ object DownloadUtil {
     ): Result<VideoInfo> {
         with(preferences) {
             val request =
-                YoutubeDLRequest(url).apply {
-                    addOption("-o", BASENAME)
-                    if (restrictFilenames) {
-                        addOption("--restrict-filenames")
-                    }
-                    if (extractAudio) {
-                        addOption("-x")
-                    }
-                    applyFormatSorter(this@with, toFormatSorter())
-                    if (cookies) {
-                        enableCookies(userAgentString)
-                    }
-                    if (proxy) {
-                        enableProxy(proxyUrl)
-                    }
-                    if (forceIpv4) {
-                        addOption("-4")
-                    }
-                    /*            if (debug) {
-                        addOption("-v")
-                    }*/
-                    if (autoSubtitle) {
-                        addOption("--write-auto-subs")
-                        if (!autoTranslatedSubtitles) {
-                            addOption("--extractor-args", "youtube:skip=translated_subs")
+                DownloaderTiming.measure(
+                    timingTrace?.let {
+                        DownloaderTiming.beginOperation(it.id, "metadata_request_build")
+                    },
+                ) {
+                    YoutubeDLRequest(url).apply {
+                        addOption("-o", BASENAME)
+                        if (restrictFilenames) {
+                            addOption("--restrict-filenames")
                         }
+                        if (extractAudio) {
+                            addOption("-x")
+                        }
+                        applyFormatSorter(this@with, toFormatSorter())
+                        if (cookies) {
+                            enableCookies(userAgentString)
+                        }
+                        if (proxy) {
+                            enableProxy(proxyUrl)
+                        }
+                        if (forceIpv4) {
+                            addOption("-4")
+                        }
+                        /*            if (debug) {
+                            addOption("-v")
+                        }*/
+                        if (autoSubtitle) {
+                            addOption("--write-auto-subs")
+                            if (!autoTranslatedSubtitles) {
+                                addOption("--extractor-args", "youtube:skip=translated_subs")
+                            }
+                        }
+                        if (playlistIndex != null) {
+                            addOption("--playlist-items", playlistIndex)
+                            addOption("--dump-json")
+                        } else {
+                            addOption("--dump-single-json")
+                        }
+                        addOption("-R", "1")
+                        addOption("--no-playlist")
+                        addOption("--socket-timeout", "5")
                     }
-                    if (playlistIndex != null) {
-                        addOption("--playlist-items", playlistIndex)
-                        addOption("--dump-json")
-                    } else {
-                        addOption("--dump-single-json")
-                    }
-                    addOption("-R", "1")
-                    addOption("--no-playlist")
-                    addOption("--socket-timeout", "5")
                 }
             return getVideoInfo(request, taskKey, timingTrace)
         }
@@ -826,6 +833,7 @@ object DownloadUtil {
                     addOption("-o", outputBuilder.append(output).toString())
                 }
                 .runCatching {
+                    timingTrace?.let { request.setTimingListener(it.id, it::wrapperTimingEvent) }
                     timingTrace?.transferStarted()
                     YoutubeDL.getInstance()
                         .execute(request = this, processId = taskId, callback = progressCallback)

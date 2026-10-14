@@ -72,7 +72,7 @@ room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
-youtubedl-android-library = { module = "io.github.junkfood02.youtubedl-android:library", version.ref = "youtubedlAndroid" }
+youtubedl-android-library = { module = "com.github.dizzyvy.youtubedl-android:library", version = "a8b545db0fb3e95922a08450f13bbdec5beb6cdd" }
 youtubedl-android-ffmpeg = { module = "io.github.junkfood02.youtubedl-android:ffmpeg", version.ref = "youtubedlAndroid" }
 youtubedl-android-aria2c = { module = "io.github.junkfood02.youtubedl-android:aria2c", version.ref = "youtubedlAndroid" }
 mmkv = { module = "com.tencent:mmkv", version.ref = "mmkv" }
