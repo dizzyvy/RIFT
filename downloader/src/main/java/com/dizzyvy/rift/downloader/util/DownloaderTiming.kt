@@ -9,7 +9,15 @@ import java.util.UUID
 private const val DOWNLOADER_TIMING_TAG = "RiftDownloaderTiming"
 private val SAFE_TIMING_VALUE = Regex("[A-Za-z_][A-Za-z0-9_]{0,63}")
 private val TIMING_CATEGORIES =
-    setOf("request", "extractor", "download", "postprocess", "retry", "process")
+    setOf(
+        "request",
+        "response_processing",
+        "extractor",
+        "download",
+        "postprocess",
+        "retry",
+        "process",
+    )
 
 private fun Throwable.timingExceptionType(): String =
     javaClass.simpleName.takeIf { SAFE_TIMING_VALUE.matches(it) } ?: "Unknown"
@@ -142,6 +150,15 @@ class DownloadTimingTrace internal constructor() {
             event.category
                 ?.takeIf { it in TIMING_CATEGORIES }
                 ?.let { add("category=$it") }
+            event.invocationId?.let { add("invocation_id=$it") }
+            event.executionKind?.let { add("execution_kind=$it") }
+            event.parentOperationId?.let { add("parent_operation_id=$it") }
+            event.extractorKey?.let { add("extractor_key=$it") }
+            event.client?.let { add("client=$it") }
+            event.provider?.let { add("provider=$it") }
+            event.relatedOperationId?.let { add("related_operation_id=$it") }
+            event.exitCode?.let { add("exit_code=$it") }
+            event.exitStatus?.let { add("exit_status=$it") }
             event.value?.let {
                 when (event.name) {
                     "retry_reported" -> add("retry_limit=$it")

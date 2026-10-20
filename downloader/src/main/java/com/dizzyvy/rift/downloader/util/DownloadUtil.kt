@@ -135,7 +135,13 @@ object DownloadUtil {
         timingTrace: DownloadTimingTrace? = null,
     ): Result<VideoInfo> =
         kotlin.runCatching<VideoInfo> {
-            timingTrace?.let { request.setTimingListener(it.id, it::wrapperTimingEvent) }
+            timingTrace?.let {
+                request.setTimingListener(
+                    it.id,
+                    it::wrapperTimingEvent,
+                    executionKind = "metadata",
+                )
+            }
             timingTrace?.extractorStarted()
             val response: YoutubeDLResponse =
                 DownloaderTiming.measure(
@@ -833,7 +839,13 @@ object DownloadUtil {
                     addOption("-o", outputBuilder.append(output).toString())
                 }
                 .runCatching {
-                    timingTrace?.let { request.setTimingListener(it.id, it::wrapperTimingEvent) }
+                    timingTrace?.let {
+                        request.setTimingListener(
+                            it.id,
+                            it::wrapperTimingEvent,
+                            executionKind = "download",
+                        )
+                    }
                     timingTrace?.transferStarted()
                     YoutubeDL.getInstance()
                         .execute(request = this, processId = taskId, callback = progressCallback)
